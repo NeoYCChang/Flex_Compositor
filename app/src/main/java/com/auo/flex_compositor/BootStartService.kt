@@ -42,13 +42,12 @@ class BootStartService : Service() {
         super.onCreate()
         val filter = IntentFilter("com.auo.flex_compositor.UPDATE_DATA")
         registerReceiver(m_dataReceiver, filter, Context.RECEIVER_EXPORTED)
+        ServiceStartForeground()
         generateElements()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d("BootStartService", "Running in foreground")
-
-        ServiceStartForeground()
         return super.onStartCommand(intent, flags, startId)
     }
 
@@ -86,7 +85,8 @@ class BootStartService : Service() {
 
                 element.type == eElementType.STREAMDECODER-> {
                     val Downcasting = element as cFlexDecoder
-                    val decoder =  cMediaDecoder(this, Downcasting.name, Downcasting.id, Downcasting.size, Downcasting.serverIP,Downcasting.serverPort)
+                    val decoder =  cMediaDecoder(this, Downcasting.name, Downcasting.id, Downcasting.size, Downcasting.serverIP,Downcasting.serverPort,
+                        Downcasting.codecType)
                     m_MediaDecoders.add(decoder)
                 }
             }
@@ -112,7 +112,7 @@ class BootStartService : Service() {
                                     Downcasting.posSize[i],
                                     Downcasting.crop_texture[i],
                                     Downcasting.touchmapping[i],
-                                    false
+                                    false,
                                 )
                                 m_DisplayViews.add(displayView)
                             }
@@ -135,7 +135,8 @@ class BootStartService : Service() {
                                     Downcasting.crop_texture,
                                     Downcasting.touchmapping,
                                     Downcasting.serverPort.toInt(),
-                                    false
+                                    false,
+                                    Downcasting.codecType
                                 )
                                 m_MediaEncoders.add(encoder)
                             }

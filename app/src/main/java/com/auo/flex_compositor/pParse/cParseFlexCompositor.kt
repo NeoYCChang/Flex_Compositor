@@ -2,6 +2,7 @@ package com.auo.flex_compositor.pParse
 
 import android.content.Context
 import android.util.Log
+import com.auo.flex_compositor.pInterface.eCodecType
 import java.io.File
 import com.auo.flex_compositor.pInterface.vSize
 import com.auo.flex_compositor.pInterface.vPos_Size
@@ -29,7 +30,8 @@ open class cFlexStreamElement(
     override var source: MutableList<Int>? = null,
     override var sink: MutableList<Int>? = null,
     open var serverIP: String,
-    open var serverPort: String
+    open var serverPort: String,
+    open var codecType: eCodecType
 ) : cElementType(id, name, type, size, source, sink)
 
 data class cFlexVirtualDisplay(
@@ -64,8 +66,9 @@ data class cFlexEncoder(
     var crop_texture: vCropTextureArea,
     var touchmapping: vTouchMapping,
     override var serverIP: String,
-    override var serverPort: String
-) : cFlexStreamElement(id, name, type, size, source, sink, serverIP, serverPort)
+    override var serverPort: String,
+    override var codecType: eCodecType
+) : cFlexStreamElement(id, name, type, size, source, sink, serverIP, serverPort, codecType)
 
 data class cFlexDecoder(
     override var id: Int,
@@ -75,8 +78,9 @@ data class cFlexDecoder(
     override var source: MutableList<Int>?,
     override var sink: MutableList<Int>?,
     override var serverIP: String,
-    override var serverPort: String
-) : cFlexStreamElement(id, name, type, size, source, sink, serverIP, serverPort)
+    override var serverPort: String,
+    override var codecType: eCodecType
+) : cFlexStreamElement(id, name, type, size, source, sink, serverIP, serverPort, codecType)
 
 
 
@@ -297,7 +301,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
     private fun parseStreamElement(name: String, line_split: List<String>, elementID : Int) : cElementType{
         var type : eElementType = eElementType.STREAM
         var offset: Int = 2
-        var newcElementType: cFlexStreamElement = cFlexStreamElement(elementID,name,type,vSize(960,540),null,null,"127.0.0.1","50000")
+        var newcElementType: cFlexStreamElement = cFlexStreamElement(elementID,name,type,vSize(960,540),null,null,"127.0.0.1","50000", eCodecType.H265)
         while (offset < line_split.size){
             when {
                 line_split[offset].contains("server", ignoreCase = true) -> {
@@ -311,6 +315,18 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
                         }
                         Log.d(m_tag,"Stream server option")
                     }
+                }
+                line_split[offset].contains("codec", ignoreCase = true) -> {
+                    val result = line_split[offset].substringAfter("(").substringBefore(")")
+                    when {
+                        result.contains("h264", ignoreCase = true) ->{
+                            newcElementType.codecType = eCodecType.H264
+                        }
+                        result.contains("h265", ignoreCase = true) ->{
+                            newcElementType.codecType = eCodecType.H265
+                        }
+                    }
+                    Log.d(m_tag,"Stream codec option")
                 }
             }
             offset++
@@ -402,7 +418,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
                                 val decoder: cFlexStreamElement = maybeSource as cFlexStreamElement
                                 elementType_list[i] = cFlexDecoder(decoder.id, decoder.name,
                                     eElementType.STREAMDECODER, decoder.size, null, null,
-                                    decoder.serverIP, decoder.serverPort)
+                                    decoder.serverIP, decoder.serverPort, decoder.codecType)
                                 maybeSource = elementType_list[i]
                             }
                             if(maybeSink.type == eElementType.STREAM){
@@ -411,7 +427,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
                                     eElementType.STREAMENCODER, maybeSink.size, null, null,
                                     src_view_crop,
                                     vTouchMapping(src_view_crop.offsetX,src_view_crop.offsetY,src_view_crop.width,src_view_crop.height),
-                                    encoder.serverIP, encoder.serverPort)
+                                    encoder.serverIP, encoder.serverPort, encoder.codecType)
                                 maybeSink = elementType_list[j]
                             }
 

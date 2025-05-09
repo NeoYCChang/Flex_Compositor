@@ -15,6 +15,11 @@ import com.auo.flex_compositor.pEGLFunction.EGLRender
 import com.auo.flex_compositor.pInterface.SerializablePointerCoords
 import com.auo.flex_compositor.pInterface.SerializablePointerProperties
 import com.auo.flex_compositor.pInterface.cMotionEvent
+import com.auo.flex_compositor.pInterface.cParseH264Codec
+import com.auo.flex_compositor.pInterface.cParseH265Codec
+import com.auo.flex_compositor.pInterface.eBufferType
+import com.auo.flex_compositor.pInterface.eCodecType
+import com.auo.flex_compositor.pInterface.iParseCodec
 import com.auo.flex_compositor.pInterface.iSurfaceSource
 import com.auo.flex_compositor.pInterface.vSize
 import com.auo.flex_compositor.pView.cSurfaceTexture
@@ -23,7 +28,8 @@ import java.io.IOException
 import java.net.URI
 import javax.microedition.khronos.egl.EGLContext
 
-class cMediaDecoder(context: Context, override val e_name: String, override val e_id: Int, size: vSize, serverip: String, serverport: String): iSurfaceSource {
+class cMediaDecoder(context: Context, override val e_name: String, override val e_id: Int, size: vSize, serverip: String, serverport: String
+                    , codecType: eCodecType = eCodecType.H264): iSurfaceSource {
     private var mMediaCodec: MediaCodec? = null  // MediaCodec object for decoding
     private var m_video_width: Int = 1920  // Video width (default 1920)
     private var m_video_height: Int = 1080  // Video height (default 1080)
@@ -32,7 +38,8 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
     private val SCREEN_FRAME_INTERVAL = 1  // Interval for I-frames (default is 1)
     private val m_tag = "cMediaDecoder"  // Tag for logging
     private var m_isGetVPS: Boolean = false  // Flag to check if VPS (Video Parameter Set) is received
-    private val TYPE_FRAME_VPS: Int = 32  // Type for VPS frame
+    private val m_codecType: eCodecType = codecType
+    private var m_parseCodec: iParseCodec? = null
 
     private val m_eglcontext: EGLContext? = StaticVariable.public_eglcontext
     private var m_SurfaseTexture: cSurfaceTexture? = null
@@ -96,10 +103,23 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
             m_isGetVPS = false
             // config MediaCodec
             //mMediaCodec = MediaCodec.createByCodecName("c2.android.hevc.decoder")
-            mMediaCodec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_HEVC)
+            var mimetype: String = MediaFormat.MIMETYPE_VIDEO_HEVC
+            when (m_codecType) {
+                eCodecType.H265 -> {
+                    m_parseCodec = cParseH265Codec()
+                    mimetype = MediaFormat.MIMETYPE_VIDEO_HEVC
+                    Log.d(m_tag, "Construct h265 Decoder")
+                }
+                eCodecType.H264 -> {
+                    m_parseCodec = cParseH264Codec()
+                    mimetype = MediaFormat.MIMETYPE_VIDEO_AVC
+                    Log.d(m_tag, "Construct h264 Decoder")
+                }
+            }
+            mMediaCodec = MediaCodec.createDecoderByType(mimetype)
             val mediaFormat =
                 MediaFormat.createVideoFormat(
-                    MediaFormat.MIMETYPE_VIDEO_HEVC,
+                    mimetype,
                     m_video_width,
                     m_video_height
                 )
@@ -121,12 +141,11 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
         // If VPS has not been received yet, check for VPS in the data
         if(!m_isGetVPS){
             if(data.size < 5) return
-            var offSet = 4
-            if (data[2].toInt() == 0x01) {
-                offSet = 3
+            var type = eBufferType.BUFFER_NULL
+            if(m_parseCodec != null) {
+                type = m_parseCodec!!.getBufferType(data)
             }
-            val type = (data[offSet].toInt() and 0x7E) shr 1
-            if(type == TYPE_FRAME_VPS){
+            if(type == eBufferType.BUFFER_FLAG_CODEC_CONFIG){
                 m_isGetVPS = true
             }
             else{

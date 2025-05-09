@@ -16,15 +16,12 @@ import android.view.MotionEvent
 import android.view.Surface
 import android.view.SurfaceControl
 import com.auo.flex_compositor.pEGLFunction.EGLHelper
-import javax.microedition.khronos.egl.EGLContext
 import com.auo.flex_compositor.pEGLFunction.EGLRender
-import com.auo.flex_compositor.pInterface.iTouchMapper
-import com.auo.flex_compositor.pInterface.vTouchMapping
-import com.auo.flex_compositor.pView.cSurfaceTexture
-import java.lang.reflect.Method
-import com.auo.flex_compositor.pInterface.iElement
 import com.auo.flex_compositor.pInterface.iSurfaceSource
 import com.auo.flex_compositor.pInterface.vSize
+import com.auo.flex_compositor.pView.cSurfaceTexture
+import java.lang.reflect.Method
+import javax.microedition.khronos.egl.EGLContext
 
 class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurfaceSource {
 
@@ -40,6 +37,7 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
     private var m_motionSetDisplayIdMethod : Method? = null
     private var m_inputManager: InputManager? = null
     private var m_appName: String? = ""
+    private var m_appisrunning: Boolean = false
 
 
     constructor(context: Context, name: String, id: Int, size: vSize, appName: String?) : this(name, id)  {
@@ -57,7 +55,7 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
             m_Surface,
             0
         )
-        Log.d(m_tag, "Create a Virtual Display {textureid: $textureid}")
+        Log.d(m_tag, "Create a Virtual Display {displayId: ${m_virtual_display!!.display.displayId} textureid: $textureid}")
 
         if(m_appName != null) {
             val app_split = m_appName!!.split('/')
@@ -65,16 +63,16 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
                 val package_name = app_split[0]
                 val activity_path = app_split[1]
                 val intent = Intent()
-                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                intent.setFlags(Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT or Intent.FLAG_ACTIVITY_NEW_TASK)
                 val comp = ComponentName(package_name, activity_path)
                 intent.setComponent(comp);
                 val options: ActivityOptions = ActivityOptions.makeBasic()
-
                 // Try to resolve the intent to see if there's a matching activity
                 options.launchDisplayId =
                     m_virtual_display!!.display.displayId  // Here, fill in the DisplayId you want to specify.
                 try {
                     context.startActivity(intent, options.toBundle())
+                    m_appisrunning = true
                 }catch (e: ActivityNotFoundException){
                     Log.e(m_tag,"The APP ${m_appName} doesn't exist.")
                 }
@@ -121,9 +119,10 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
                 Int::class.java      // DisplayID
             )
         }
-        m_motionSetDisplayIdMethod!!.invoke(motionEvent, m_virtual_display!!.display.displayId)
-        m_injectInputEventMethod?.invoke(m_inputManager, motionEvent, 0)
-        Log.d(m_tag, "touch ")
+        if(m_appisrunning) {
+            m_motionSetDisplayIdMethod!!.invoke(motionEvent, m_virtual_display!!.display.displayId)
+            m_injectInputEventMethod?.invoke(m_inputManager, motionEvent, 0)
+        }
     }
 
 

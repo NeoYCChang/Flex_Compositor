@@ -31,10 +31,16 @@ import javax.microedition.khronos.egl.EGLContext
 import com.auo.flex_compositor.pInterface.vSize
 import kotlinx.serialization.json.Json
 import com.auo.flex_compositor.pInterface.cMotionEvent
+import com.auo.flex_compositor.pInterface.cParseH264Codec
+import com.auo.flex_compositor.pInterface.cParseH265Codec
+import com.auo.flex_compositor.pInterface.eBufferType
+import com.auo.flex_compositor.pInterface.iParseCodec
+import com.auo.flex_compositor.pInterface.eCodecType
 import kotlinx.serialization.SerializationException
 
 class cMediaEncoder(context: Context, override val e_name: String, override val e_id: Int, source: iSurfaceSource,
-                    size: vSize, cropTextureArea: vCropTextureArea, touchMapping: vTouchMapping?, serverport: Int,isDeWarp: Boolean)
+                    size: vSize, cropTextureArea: vCropTextureArea, touchMapping: vTouchMapping?, serverport: Int,isDeWarp: Boolean,
+                    codecType: eCodecType = eCodecType.H264)
     : iElement, iEssentialRenderingTools {
 
     private var m_source: iSurfaceSource = source
@@ -57,10 +63,8 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
     private val SCREEN_FRAME_RATE: Int = 20
     private val SCREEN_FRAME_INTERVAL: Int = 1
     private val SOCKET_TIME_OUT: Long = 10000
-    // I帧
-    private val TYPE_FRAME_INTERVAL: Int = 19
-    // vps帧
-    private val TYPE_FRAME_VPS: Int = 32
+    private val m_codecType: eCodecType = codecType
+    private var m_parseCodec: iParseCodec? = null
     private var mMediaCodec: MediaCodec? = null
     private var m_playing = false
 
@@ -138,16 +142,14 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
 
     private fun encodeData(byteBuffer: ByteBuffer, bufferInfo: MediaCodec.BufferInfo) {
         if(bufferInfo.size > 0) {
-            var offSet = 4
-            if (byteBuffer[2].toInt() == 0x01) {
-                offSet = 3
+            var type = eBufferType.BUFFER_NULL
+            if(m_parseCodec != null) {
+                type = m_parseCodec!!.getBufferType(byteBuffer, bufferInfo)
             }
-
-            val type = (byteBuffer[offSet].toInt() and 0x7E) shr 1
-            if (type == TYPE_FRAME_VPS) {
+            if (type == eBufferType.BUFFER_FLAG_CODEC_CONFIG) {
                 m_vps_pps_sps = ByteArray(bufferInfo.size)
                 byteBuffer.get(m_vps_pps_sps)
-            } else if (type == TYPE_FRAME_INTERVAL) {
+            } else if (type == eBufferType.BUFFER_FLAG_KEY_FRAME) {
                 val bytes = ByteArray(bufferInfo.size)
                 byteBuffer.get(bytes)
                 var newBytes: ByteArray? = null
@@ -156,7 +158,7 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
                     System.arraycopy(m_vps_pps_sps, 0, newBytes, 0, m_vps_pps_sps!!.size)
                     System.arraycopy(bytes, 0, newBytes, m_vps_pps_sps!!.size, bytes.size)
                     m_webSocketServer?.sendData(newBytes)
-                } else {
+                } else if (type == eBufferType.BUFFER_OTHER) {
                     m_webSocketServer?.sendData(bytes)
                 }
             } else {
@@ -168,8 +170,20 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
     }
 
     fun startEncode() {
-        Log.d(m_tag, "${m_vsize}")
-        val mediaFormat = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_HEVC, m_vsize.width, m_vsize.height).apply {
+        var mimetype: String = MediaFormat.MIMETYPE_VIDEO_HEVC
+        when (m_codecType) {
+            eCodecType.H265 -> {
+                m_parseCodec = cParseH265Codec()
+                mimetype = MediaFormat.MIMETYPE_VIDEO_HEVC
+                Log.d(m_tag, "Construct h265 Encoder")
+            }
+            eCodecType.H264 -> {
+                m_parseCodec = cParseH264Codec()
+                mimetype = MediaFormat.MIMETYPE_VIDEO_AVC
+                Log.d(m_tag, "Construct h264 Encoder")
+            }
+        }
+        val mediaFormat = MediaFormat.createVideoFormat(mimetype, m_vsize.width, m_vsize.height).apply {
             // Set the color format to Surface format
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             // Set the bitrate (bits per second)
@@ -182,7 +196,7 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
 
         try {
             // Create the MediaCodec encoder
-            mMediaCodec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_HEVC)
+            mMediaCodec = MediaCodec.createEncoderByType(mimetype)
         } catch (e: IOException) {
             e.printStackTrace()
         }
