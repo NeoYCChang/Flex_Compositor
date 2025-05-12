@@ -6,7 +6,7 @@ import java.nio.ByteBuffer
 
 data class vTouchMapping(var offsetX: Int, var offsetY: Int, var width: Int, var height: Int)
 interface iTouchMapper {
-    fun injectMotionEvent(motionEvent: MotionEvent)
+    fun injectMotionEvent(motionEvent: cMotionEvent)
 }
 
 fun funtoBytes(value: Long): ByteArray {
@@ -27,23 +27,24 @@ fun funtoBytes(value: Byte): ByteArray {
 
 @Serializable
 data class SerializablePointerProperties(
-    val id: Int,
-    val toolType: Int
+    var id: Int,
+    var toolType: Int
 )
 
 @Serializable
 data class SerializablePointerCoords(
-    val x: Float,
-    val y: Float,
-    val pressure: Float,
-    val size: Float
+    var x: Float,
+    var y: Float,
+    var pressure: Float,
+    var size: Float
 )
 
 @Serializable
 data class cMotionEvent(
     val start: Byte,
-    val decoder_width: Int,
-    val decoder_height: Int,
+    var name: String,
+    var decoder_width: Int,
+    var decoder_height: Int,
     val downTime: Long,
     val eventTime: Long,
     val action: Int,

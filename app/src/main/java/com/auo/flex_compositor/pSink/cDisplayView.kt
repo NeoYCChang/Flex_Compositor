@@ -26,6 +26,9 @@ import com.auo.flex_compositor.pEGLFunction.EGLHelper
 import com.auo.flex_compositor.pEGLFunction.EGLRender
 import com.auo.flex_compositor.pEGLFunction.EGLRender.Texture_Size
 import com.auo.flex_compositor.pEGLFunction.EGLThread
+import com.auo.flex_compositor.pInterface.SerializablePointerCoords
+import com.auo.flex_compositor.pInterface.SerializablePointerProperties
+import com.auo.flex_compositor.pInterface.cMotionEvent
 import com.auo.flex_compositor.pInterface.iElement
 import com.auo.flex_compositor.pInterface.iEssentialRenderingTools
 import com.auo.flex_compositor.pInterface.iSurfaceSource
@@ -243,34 +246,33 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
     }
 
     // Override this method to handle touch events
-    override fun onTouchEvent(event: MotionEvent): Boolean {
+    override fun onTouchEvent(motionEvent: MotionEvent): Boolean {
         if(m_source !== null && m_touchMapping != null) {
             val touchmapper: iTouchMapper = m_source as iTouchMapper
-            val pointerCount = event.pointerCount
-            val pointerProperties =
-                arrayOfNulls<PointerProperties>(pointerCount)
-            val pointerCoords = arrayOfNulls<PointerCoords>(pointerCount)
-            for (i in 0 until pointerCount) {
-                pointerProperties[i] = PointerProperties()
-                pointerProperties[i]!!.id = event.getPointerId(i)
-                pointerProperties[i]!!.toolType = event.getToolType(i)
-                pointerCoords[i] = PointerCoords()
-                pointerCoords[i]!!.x =
-                    event.getX(i) * (m_touchMapping.width - 1) / (this.width - 1) + m_touchMapping.offsetX
-                pointerCoords[i]!!.y =
-                    event.getY(i) * (m_touchMapping.height - 1) / (this.height - 1) + m_touchMapping.offsetY
-                pointerCoords[i]!!.pressure = event.getPressure(i)
-                pointerCoords[i]!!.size = event.getSize(i)
+            val pointerCount = motionEvent.pointerCount
+            val pointerProperties =Array(pointerCount) { i ->
+                SerializablePointerProperties(
+                    id =  motionEvent.getPointerId(i),
+                    toolType = motionEvent.getToolType(i)
+                )
+            }
+            val pointerCoords = Array(pointerCount) { i ->
+                SerializablePointerCoords(
+                    x = motionEvent.getX(i) * (m_touchMapping.width - 1) / (this.width - 1) + m_touchMapping.offsetX,
+                    y = motionEvent.getY(i) * (m_touchMapping.height - 1) / (this.height - 1) + m_touchMapping.offsetY,
+                    pressure = motionEvent.getPressure(i),
+                    size = motionEvent.getSize(i)
+                )
             }
 
-            val newevent: MotionEvent = MotionEvent.obtain(
-                event.downTime, event.eventTime, event.action, event.pointerCount,
-                pointerProperties, pointerCoords, event.metaState, event.buttonState,
-                event.xPrecision, event.yPrecision, event.deviceId, event.edgeFlags,
-                event.source, event.flags
-            )
-            touchmapper.injectMotionEvent(newevent)
-            m_DisplayViewCallback?.onTouchCallback(newevent)
+            val cMotionEvent: cMotionEvent = cMotionEvent(
+                com.auo.flex_compositor.pInterface.start_byte, e_name,m_posSize.width, m_posSize.height,
+                motionEvent.downTime, motionEvent.eventTime,
+                motionEvent.action,motionEvent.pointerCount,pointerProperties,pointerCoords,
+                motionEvent.metaState,motionEvent.buttonState,motionEvent.xPrecision,motionEvent.yPrecision,
+                0,motionEvent.edgeFlags,motionEvent.source,motionEvent.flags)
+
+            touchmapper.injectMotionEvent(cMotionEvent)
         }
         return true // Return true to indicate the event was handled
     }

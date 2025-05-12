@@ -15,6 +15,7 @@ import com.auo.flex_compositor.pEGLFunction.EGLRender
 import com.auo.flex_compositor.pEGLFunction.EGLRender.Companion
 import com.auo.flex_compositor.pEGLFunction.EGLRender.Texture_Size
 import com.auo.flex_compositor.pEGLFunction.EGLThread
+import com.auo.flex_compositor.pInterface.SerializablePointerCoords
 import com.auo.flex_compositor.pInterface.iElement
 import com.auo.flex_compositor.pInterface.iEssentialRenderingTools
 import com.auo.flex_compositor.pInterface.iSurfaceSource
@@ -74,8 +75,6 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
     // websocket server
     private val m_socket_port: Int = serverport
     private var m_webSocketServer: cWebSocketServer? = null
-    private var m_downTime: Long = 0
-    private var m_eventTime: Long = 0
 
     private val m_tag: String  = "cMediaEncoder"
 
@@ -253,35 +252,15 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
                     if(m_source !== null && m_touchMapping != null) {
                         val touchmapper: iTouchMapper = m_source as iTouchMapper
                         val pointerCount = event.pointerCount
-                        val pointerProperties =
-                            arrayOfNulls<PointerProperties>(pointerCount)
-                        val pointerCoords = arrayOfNulls<PointerCoords>(pointerCount)
+
                         for (i in 0 until pointerCount) {
-                            pointerProperties[i] = PointerProperties()
-                            pointerProperties[i]!!.id = event.pointerProperties[i].id
-                            pointerProperties[i]!!.toolType = event.pointerProperties[i].toolType
-                            pointerCoords[i] = PointerCoords()
-                            pointerCoords[i]!!.x =
-                                event.pointerCoords[i].x * (m_touchMapping.width - 1) / (event.decoder_width - 1) + m_touchMapping.offsetX
-                            pointerCoords[i]!!.y =
-                                event.pointerCoords[i].y * (m_touchMapping.height - 1) / (event.decoder_height - 1) + m_touchMapping.offsetY
-                            pointerCoords[i]!!.pressure = event.pointerCoords[i].pressure
-                            pointerCoords[i]!!.size = event.pointerCoords[i].size
-                        }
-                        val maskedAction = event.action and MotionEvent.ACTION_MASK
-                        if(maskedAction == MotionEvent.ACTION_DOWN){
-                            m_downTime = SystemClock.uptimeMillis()
+                            val x = event.pointerCoords[i].x
+                            val y = event.pointerCoords[i].y
+                            event.pointerCoords[i].x = x * (m_touchMapping.width - 1) / (event.decoder_width - 1) + m_touchMapping.offsetX
+                            event.pointerCoords[i].y = y * (m_touchMapping.height - 1) / (event.decoder_height - 1) + m_touchMapping.offsetY
                         }
 
-                        m_eventTime = m_downTime + (event.eventTime - event.downTime)
-
-                        val newevent: MotionEvent = MotionEvent.obtain(
-                            m_downTime, m_eventTime, event.action, event.pointerCount,
-                            pointerProperties, pointerCoords, event.metaState, event.buttonState,
-                            event.xPrecision, event.yPrecision, event.deviceId, event.edgeFlags,
-                            event.source, event.flags
-                        )
-                        touchmapper.injectMotionEvent(newevent)
+                        touchmapper.injectMotionEvent(event)
                     }
                 }
 

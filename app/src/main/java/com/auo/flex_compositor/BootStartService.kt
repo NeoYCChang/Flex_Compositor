@@ -105,7 +105,7 @@ class BootStartService : Service() {
                             if(sourceElement != null) {
                                 val displayView = cDisplayView(
                                     this,
-                                    Downcasting.name,
+                                    (Downcasting.name+"_$i"),
                                     Downcasting.id,
                                     sourceElement,
                                     Downcasting.displayid,

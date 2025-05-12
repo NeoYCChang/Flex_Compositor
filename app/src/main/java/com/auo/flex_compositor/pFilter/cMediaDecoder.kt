@@ -178,36 +178,19 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
         }
     }
 
-    override fun injectMotionEvent(motionEvent: MotionEvent) {
+    override fun injectMotionEvent(cmotionEvent: cMotionEvent) {
+        if(m_webSocketClient != null){
+            if(m_webSocketClient!!.getHostAddress() != null)
+            {
+                val view_name = cmotionEvent.name
+                cmotionEvent.name = view_name + "->${m_webSocketClient!!.getHostAddress()}"
+                cmotionEvent.decoder_width = m_size.width
+                cmotionEvent.decoder_height = m_size.height
+                val motionEventBytes = Json.encodeToString(cmotionEvent).encodeToByteArray()
 
-        val pointerCount = motionEvent.pointerCount
-        val pointerProperties =Array(pointerCount) { i ->
-            SerializablePointerProperties(
-                id =  motionEvent.getPointerId(i),
-                toolType = motionEvent.getToolType(i)
-            )
+                m_webSocketClient?.sendData(motionEventBytes)
+            }
         }
-        val pointerCoords = Array(pointerCount) { i ->
-            SerializablePointerCoords(
-                x = motionEvent.getX(i),
-                y = motionEvent.getY(i),
-                pressure = motionEvent.getPressure(i),
-                size = motionEvent.getSize(i)
-            )
-        }
-
-        val cMotionEvent: cMotionEvent = cMotionEvent(
-            com.auo.flex_compositor.pInterface.start_byte, m_size.width,m_size.height,
-            motionEvent.downTime, motionEvent.eventTime,
-            motionEvent.action,motionEvent.pointerCount,pointerProperties,pointerCoords,
-            motionEvent.metaState,motionEvent.buttonState,motionEvent.xPrecision,motionEvent.yPrecision,
-            0,motionEvent.edgeFlags,motionEvent.source,motionEvent.flags)
-
-        val motionEventBytes = Json.encodeToString(cMotionEvent).encodeToByteArray()
-
-        m_webSocketClient?.sendData(motionEventBytes)
-
-        Log.d(m_tag, "touch ")
     }
 
     override fun getEGLContext(): EGLContext?

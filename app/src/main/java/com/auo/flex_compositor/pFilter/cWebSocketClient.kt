@@ -44,6 +44,16 @@ class cWebSocketClient (private val mSocketCallback: SocketCallback?, serverUri:
         }
     }
 
+    fun getHostAddress(): String?{
+        val socket = this.socket
+        if (socket != null && socket.isConnected) {
+            val localIp = socket.localAddress.hostAddress
+            val localPort = socket.localPort
+            return "${localIp}:${localPort}"
+        }
+        return null
+    }
+
     private fun attemptReconnect() {
         if (retryCount < maxRetries) {
             retryCount++
