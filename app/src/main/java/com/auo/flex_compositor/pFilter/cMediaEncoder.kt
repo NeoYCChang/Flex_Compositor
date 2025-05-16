@@ -4,40 +4,33 @@ import android.content.Context
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
-import android.os.Bundle
-import android.os.SystemClock
+import android.os.Handler
+import android.os.HandlerThread
 import android.util.Log
-import android.view.MotionEvent
-import android.view.MotionEvent.PointerCoords
-import android.view.MotionEvent.PointerProperties
 import android.view.Surface
 import com.auo.flex_compositor.pEGLFunction.EGLRender
-import com.auo.flex_compositor.pEGLFunction.EGLRender.Companion
 import com.auo.flex_compositor.pEGLFunction.EGLRender.Texture_Size
 import com.auo.flex_compositor.pEGLFunction.EGLThread
-import com.auo.flex_compositor.pInterface.SerializablePointerCoords
+import com.auo.flex_compositor.pInterface.cMotionEvent
+import com.auo.flex_compositor.pInterface.cParseH264Codec
+import com.auo.flex_compositor.pInterface.cParseH265Codec
+import com.auo.flex_compositor.pInterface.eBufferType
+import com.auo.flex_compositor.pInterface.eCodecType
 import com.auo.flex_compositor.pInterface.iElement
 import com.auo.flex_compositor.pInterface.iEssentialRenderingTools
+import com.auo.flex_compositor.pInterface.iParseCodec
 import com.auo.flex_compositor.pInterface.iSurfaceSource
 import com.auo.flex_compositor.pInterface.iTouchMapper
-import com.auo.flex_compositor.pInterface.vTouchMapping
 import com.auo.flex_compositor.pInterface.vCropTextureArea
-import com.auo.flex_compositor.pInterface.vPos_Size
-import com.auo.flex_compositor.pSource.cVirtualDisplay
+import com.auo.flex_compositor.pInterface.vSize
+import com.auo.flex_compositor.pInterface.vTouchMapping
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
 import java.io.IOException
 import java.lang.ref.WeakReference
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import javax.microedition.khronos.egl.EGLContext
-import com.auo.flex_compositor.pInterface.vSize
-import kotlinx.serialization.json.Json
-import com.auo.flex_compositor.pInterface.cMotionEvent
-import com.auo.flex_compositor.pInterface.cParseH264Codec
-import com.auo.flex_compositor.pInterface.cParseH265Codec
-import com.auo.flex_compositor.pInterface.eBufferType
-import com.auo.flex_compositor.pInterface.iParseCodec
-import com.auo.flex_compositor.pInterface.eCodecType
-import kotlinx.serialization.SerializationException
 
 class cMediaEncoder(context: Context, override val e_name: String, override val e_id: Int, source: iSurfaceSource,
                     size: vSize, cropTextureArea: vCropTextureArea, touchMapping: vTouchMapping?, serverport: Int,isDeWarp: Boolean,
@@ -61,7 +54,7 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
 
     private var eglThread: EGLThread? = null
 
-    private val SCREEN_FRAME_RATE: Int = 20
+    private val SCREEN_FRAME_RATE: Int = 60
     private val SCREEN_FRAME_INTERVAL: Int = 1
     private val SOCKET_TIME_OUT: Long = 10000
     private val m_codecType: eCodecType = codecType
@@ -75,6 +68,10 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
     // websocket server
     private val m_socket_port: Int = serverport
     private var m_webSocketServer: cWebSocketServer? = null
+
+    // codec thread
+    private val m_codecThread: HandlerThread = HandlerThread("MediaCodecCallbackThread");
+    private var m_codecHandle: Handler? = null
 
     private val m_tag: String  = "cMediaEncoder"
 
@@ -186,7 +183,7 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
             // Set the color format to Surface format
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             // Set the bitrate (bits per second)
-            setInteger(MediaFormat.KEY_BIT_RATE, m_vsize.width * m_vsize.height * 2)
+            setInteger(MediaFormat.KEY_BIT_RATE, m_vsize.width * m_vsize.height * m_parseCodec!!.BITRATE_MULTIPLIER)
             // Set the frame rate
             setInteger(MediaFormat.KEY_FRAME_RATE, SCREEN_FRAME_RATE)
             // Set I-frame interval
@@ -199,6 +196,7 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
         } catch (e: IOException) {
             e.printStackTrace()
         }
+        m_codecHandle = startThread(m_codecThread)
 
         mMediaCodec?.setCallback(object : MediaCodec.Callback() {
             override fun onInputBufferAvailable(codec: MediaCodec, index: Int) {
@@ -223,7 +221,7 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
                 Log.e(m_tag, "Encoder error: ${e.message}")
                 stopEncode()
             }
-        })
+        }, m_codecHandle)
         //mMediaCodec = MediaCodec.createByCodecName("c2.android.hevc.encoder")
         mMediaCodec?.configure(mediaFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
 
@@ -232,15 +230,22 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
         mMediaCodec?.start()
     }
 
+    fun startThread(thread: HandlerThread) : Handler{
+        thread.start();
+        return Handler(thread.getLooper())
+    }
+
     fun stopEncode() {
         m_playing = false
         if (mMediaCodec != null) {
+            mMediaCodec!!.stop()
             mMediaCodec!!.release()
         }
         eglThread!!.onDestory()
         eglThread = null
         m_webSocketServer?.close()
         m_webSocketServer?.stop()
+        m_codecThread?.quitSafely()
     }
 
     fun onTouchEvent(data: ByteArray) {

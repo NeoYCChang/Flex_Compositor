@@ -26,7 +26,9 @@ import com.auo.flex_compositor.pInterface.iSurfaceSource
 import com.auo.flex_compositor.pInterface.vSize
 import com.auo.flex_compositor.pView.cSurfaceTexture
 import java.lang.reflect.Method
+import java.util.concurrent.locks.ReentrantLock
 import javax.microedition.khronos.egl.EGLContext
+import kotlin.concurrent.withLock
 
 class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurfaceSource {
 
@@ -47,6 +49,7 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
     private var m_cMotionEvent: cMotionEvent? = null
     private var m_downTime: Long = 0
     private var m_eventTime: Long = 0
+    private val m_MotionLock = ReentrantLock()
 
 
     constructor(context: Context, name: String, id: Int, size: vSize, appName: String?) : this(name, id)  {
@@ -120,49 +123,60 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
      * @param displayid the ID of the display to associate the MotionEvent with, used to specify which screen the event is for.
      */
     override fun injectMotionEvent(cmotionEvent: cMotionEvent) {
-        if(m_motionSetDisplayIdMethod ==  null) {
-            // Get the MotionEvent class
-            val motionEventClass = MotionEvent::class.java
-            m_motionSetDisplayIdMethod = motionEventClass.getMethod(
-                "setDisplayId",
-                Int::class.java      // DisplayID
-            )
-        }
-        if(m_appisrunning && cmotionEvent.start == com.auo.flex_compositor.pInterface.start_byte) {
-            m_cMotionEvent = manageCMotionEvent(m_touchDevices, cmotionEvent, m_cMotionEvent)
-            val pointerCount = m_cMotionEvent!!.pointerCount
-            val pointerProperties =
-                arrayOfNulls<MotionEvent.PointerProperties>(pointerCount)
-            val pointerCoords = arrayOfNulls<MotionEvent.PointerCoords>(pointerCount)
-            for (i in 0 until pointerCount) {
-                pointerProperties[i] = MotionEvent.PointerProperties()
-                pointerProperties[i]!!.id = m_cMotionEvent!!.pointerProperties[i].id
-                pointerProperties[i]!!.toolType = MotionEvent.TOOL_TYPE_FINGER
-                pointerCoords[i] = MotionEvent.PointerCoords()
-                pointerCoords[i]!!.x =
-                    m_cMotionEvent!!.pointerCoords[i].x
-                pointerCoords[i]!!.y =
-                    m_cMotionEvent!!.pointerCoords[i].y
-                pointerCoords[i]!!.pressure = m_cMotionEvent!!.pointerCoords[i].pressure
-                pointerCoords[i]!!.size = m_cMotionEvent!!.pointerCoords[i].size
+        m_MotionLock.withLock {
+            if (m_motionSetDisplayIdMethod == null) {
+                // Get the MotionEvent class
+                val motionEventClass = MotionEvent::class.java
+                m_motionSetDisplayIdMethod = motionEventClass.getMethod(
+                    "setDisplayId",
+                    Int::class.java      // DisplayID
+                )
             }
-            val maskedAction = m_cMotionEvent!!.action and MotionEvent.ACTION_MASK
-            if(maskedAction == MotionEvent.ACTION_DOWN){
-                m_downTime = SystemClock.uptimeMillis()
-                m_eventTime = SystemClock.uptimeMillis()
-            }
-            else {
-                m_eventTime = SystemClock.uptimeMillis()
-            }
-            val newevent: MotionEvent = MotionEvent.obtain(
-                m_downTime, m_eventTime, m_cMotionEvent!!.action, m_cMotionEvent!!.pointerCount,
-                pointerProperties, pointerCoords, m_cMotionEvent!!.metaState, m_cMotionEvent!!.buttonState,
-                m_cMotionEvent!!.xPrecision, m_cMotionEvent!!.yPrecision, m_cMotionEvent!!.deviceId, m_cMotionEvent!!.edgeFlags,
-                InputDevice.SOURCE_TOUCHSCREEN, m_cMotionEvent!!.flags
-            )
+            if (m_appisrunning && cmotionEvent.start == com.auo.flex_compositor.pInterface.start_byte) {
+                m_cMotionEvent = manageCMotionEvent(m_touchDevices, cmotionEvent, m_cMotionEvent)
+                val pointerCount = m_cMotionEvent!!.pointerCount
+                val pointerProperties =
+                    arrayOfNulls<MotionEvent.PointerProperties>(pointerCount)
+                val pointerCoords = arrayOfNulls<MotionEvent.PointerCoords>(pointerCount)
+                for (i in 0 until pointerCount) {
+                    pointerProperties[i] = MotionEvent.PointerProperties()
+                    pointerProperties[i]!!.id = m_cMotionEvent!!.pointerProperties[i].id
+                    pointerProperties[i]!!.toolType = MotionEvent.TOOL_TYPE_FINGER
+                    pointerCoords[i] = MotionEvent.PointerCoords()
+                    pointerCoords[i]!!.x =
+                        m_cMotionEvent!!.pointerCoords[i].x
+                    pointerCoords[i]!!.y =
+                        m_cMotionEvent!!.pointerCoords[i].y
+                    pointerCoords[i]!!.pressure = m_cMotionEvent!!.pointerCoords[i].pressure
+                    pointerCoords[i]!!.size = m_cMotionEvent!!.pointerCoords[i].size
+                }
+                val maskedAction = m_cMotionEvent!!.action and MotionEvent.ACTION_MASK
+                if (maskedAction == MotionEvent.ACTION_DOWN) {
+                    m_downTime = SystemClock.uptimeMillis()
+                    m_eventTime = SystemClock.uptimeMillis()
+                } else {
+                    m_eventTime = SystemClock.uptimeMillis()
+                }
+                val newevent: MotionEvent = MotionEvent.obtain(
+                    m_downTime,
+                    m_eventTime,
+                    m_cMotionEvent!!.action,
+                    m_cMotionEvent!!.pointerCount,
+                    pointerProperties,
+                    pointerCoords,
+                    m_cMotionEvent!!.metaState,
+                    m_cMotionEvent!!.buttonState,
+                    m_cMotionEvent!!.xPrecision,
+                    m_cMotionEvent!!.yPrecision,
+                    m_cMotionEvent!!.deviceId,
+                    m_cMotionEvent!!.edgeFlags,
+                    InputDevice.SOURCE_TOUCHSCREEN,
+                    m_cMotionEvent!!.flags
+                )
 
-            m_motionSetDisplayIdMethod!!.invoke(newevent, m_virtual_display!!.display.displayId)
-            m_injectInputEventMethod?.invoke(m_inputManager, newevent, 0)
+                m_motionSetDisplayIdMethod!!.invoke(newevent, m_virtual_display!!.display.displayId)
+                m_injectInputEventMethod?.invoke(m_inputManager, newevent, 0)
+            }
         }
     }
 

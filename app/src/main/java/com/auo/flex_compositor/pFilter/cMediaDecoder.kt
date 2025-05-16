@@ -4,6 +4,8 @@ import android.content.Context
 import android.media.MediaCodec
 import android.media.MediaCodecList
 import android.media.MediaFormat
+import android.os.Handler
+import android.os.HandlerThread
 import android.util.Log
 import android.view.MotionEvent
 import android.view.MotionEvent.PointerCoords
@@ -26,15 +28,15 @@ import com.auo.flex_compositor.pView.cSurfaceTexture
 import kotlinx.serialization.json.Json
 import java.io.IOException
 import java.net.URI
+import java.util.concurrent.locks.ReentrantLock
 import javax.microedition.khronos.egl.EGLContext
+import kotlin.concurrent.withLock
 
 class cMediaDecoder(context: Context, override val e_name: String, override val e_id: Int, size: vSize, serverip: String, serverport: String
                     , codecType: eCodecType = eCodecType.H264): iSurfaceSource {
     private var mMediaCodec: MediaCodec? = null  // MediaCodec object for decoding
-    private var m_video_width: Int = 1920  // Video width (default 1920)
-    private var m_video_height: Int = 1080  // Video height (default 1080)
     private val DECODE_TIME_OUT: Long = 10000  // Timeout for decoding (10 seconds)
-    private val SCREEN_FRAME_RATE = 20  // Frame rate for the video
+    private val SCREEN_FRAME_RATE = 60  // Frame rate for the video
     private val SCREEN_FRAME_INTERVAL = 1  // Interval for I-frames (default is 1)
     private val m_tag = "cMediaDecoder"  // Tag for logging
     private var m_isGetVPS: Boolean = false  // Flag to check if VPS (Video Parameter Set) is received
@@ -50,6 +52,14 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
     private val m_serverip  = serverip
     private val m_socket_port: String = serverport
     private var m_webSocketClient: cWebSocketClient? = null
+    private val m_dataDeque = ArrayDeque<ByteArray>()
+    private val m_inputIndexDeque = ArrayDeque<Int>()
+    private val m_decodeDataLock = ReentrantLock()
+    private val m_MotionLock = ReentrantLock()
+
+    // codec thread
+    private val m_codecThread: HandlerThread = HandlerThread("MediaCodecCallbackThread");
+    private var m_codecHandle: Handler? = null
 
     init {
         startDecode()
@@ -120,15 +130,33 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
             val mediaFormat =
                 MediaFormat.createVideoFormat(
                     mimetype,
-                    m_video_width,
-                    m_video_height
+                    m_size.width,
+                    m_size.height
                 )
-            mediaFormat.setInteger(MediaFormat.KEY_BIT_RATE, m_video_width * m_video_height * 2)
+            mediaFormat.setInteger(MediaFormat.KEY_BIT_RATE, m_size.width * m_size.height * m_parseCodec!!.BITRATE_MULTIPLIER)
             mediaFormat.setInteger(MediaFormat.KEY_FRAME_RATE, SCREEN_FRAME_RATE)
             mediaFormat.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, SCREEN_FRAME_INTERVAL)
             //mediaFormat.setInteger(MediaFormat.KEY_COLOR_STANDARD, MediaFormat.COLOR_STANDARD_BT2020);
+            m_codecHandle = startThread(m_codecThread)
 
+            mMediaCodec?.setCallback(object : MediaCodec.Callback() {
+                override fun onInputBufferAvailable(codec: MediaCodec, index: Int) {
+                    tryToDecodeData(index)
+                }
 
+                override fun onOutputBufferAvailable(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
+                    codec!!.releaseOutputBuffer(index, true)
+                }
+
+                override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
+                    Log.d(m_tag, "Encoder output format changed: $format")
+                }
+
+                override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
+                    Log.e(m_tag, "Encoder error: ${e.message}")
+                    stopDecode()
+                }
+            },  m_codecHandle)
 
             mMediaCodec!!.configure(mediaFormat, m_Surface, null, 0)
             mMediaCodec!!.start()
@@ -152,43 +180,83 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
                 return
             }
         }
+
         // Dequeue input buffer for the MediaCodec to process the incoming data
-        val index = mMediaCodec!!.dequeueInputBuffer(DECODE_TIME_OUT)
-        if (index >= 0) {
-            val inputBuffer = mMediaCodec!!.getInputBuffer(index)
-            inputBuffer!!.clear()
-            inputBuffer.put(data, 0, data.size)
-            mMediaCodec!!.queueInputBuffer(index, 0, data.size, System.currentTimeMillis(), 0)
+        tryToDecodeData(data)
+    }
+
+    fun tryToDecodeData(data: ByteArray){
+        m_decodeDataLock.withLock {
+            m_dataDeque.addLast(data)
+            if (m_dataDeque.size > 0 && m_inputIndexDeque.size > 0) {
+                val data = m_dataDeque.removeFirst()
+                val inputIndex = m_inputIndexDeque.removeFirst()
+                if (inputIndex >= 0) {
+                    val inputBuffer = mMediaCodec!!.getInputBuffer(inputIndex)
+                    inputBuffer!!.clear()
+                    inputBuffer.put(data, 0, data.size)
+                    mMediaCodec!!.queueInputBuffer(
+                        inputIndex,
+                        0,
+                        data.size,
+                        System.currentTimeMillis(),
+                        0
+                    )
+                }
+            }
         }
-        val bufferInfo = MediaCodec.BufferInfo()
-        // Dequeue output buffer from the MediaCodec to get decoded video frames
-        var outputBufferIndex = mMediaCodec!!.dequeueOutputBuffer(bufferInfo, DECODE_TIME_OUT)
-        while (outputBufferIndex > 0) {
-            mMediaCodec!!.releaseOutputBuffer(outputBufferIndex, true)
-            outputBufferIndex = mMediaCodec!!.dequeueOutputBuffer(bufferInfo, 0)
+    }
+
+    fun tryToDecodeData(index: Int){
+        m_decodeDataLock.withLock {
+            m_inputIndexDeque.addLast(index)
+            if (m_dataDeque.size > 0 && m_inputIndexDeque.size > 0) {
+                val data = m_dataDeque.removeFirst()
+                val inputIndex = m_inputIndexDeque.removeFirst()
+                if (inputIndex >= 0) {
+                    val inputBuffer = mMediaCodec!!.getInputBuffer(inputIndex)
+                    inputBuffer!!.clear()
+                    inputBuffer.put(data, 0, data.size)
+                    mMediaCodec!!.queueInputBuffer(
+                        inputIndex,
+                        0,
+                        data.size,
+                        System.currentTimeMillis(),
+                        0
+                    )
+                }
+            }
         }
+    }
+
+    fun startThread(thread: HandlerThread) : Handler{
+        thread.start();
+        return Handler(thread.getLooper())
     }
 
     fun stopDecode() {
         if (mMediaCodec != null) {
+            mMediaCodec!!.stop()
             mMediaCodec!!.release()
         }
         if (m_webSocketClient != null) {
             m_webSocketClient!!.close()
         }
+        m_codecThread?.quitSafely()
     }
 
     override fun injectMotionEvent(cmotionEvent: cMotionEvent) {
-        if(m_webSocketClient != null){
-            if(m_webSocketClient!!.getHostAddress() != null)
-            {
-                val view_name = cmotionEvent.name
-                cmotionEvent.name = view_name + "->${m_webSocketClient!!.getHostAddress()}"
-                cmotionEvent.decoder_width = m_size.width
-                cmotionEvent.decoder_height = m_size.height
-                val motionEventBytes = Json.encodeToString(cmotionEvent).encodeToByteArray()
+        m_MotionLock.withLock {
+            if (m_webSocketClient != null) {
+                if (m_webSocketClient!!.getHostAddress() != null) {
+                    val view_name = cmotionEvent.name
+                    cmotionEvent.name = view_name + "->${m_webSocketClient!!.getHostAddress()}"
+                    cmotionEvent.decoder_width = m_size.width
+                    cmotionEvent.decoder_height = m_size.height
+                    val motionEventBytes = Json.encodeToString(cmotionEvent).encodeToByteArray()
 
-                m_webSocketClient?.sendData(motionEventBytes)
+                    m_webSocketClient?.sendData(motionEventBytes)
+                }
             }
         }
     }

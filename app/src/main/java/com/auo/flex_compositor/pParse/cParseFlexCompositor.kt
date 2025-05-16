@@ -136,8 +136,8 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
             var which_row: Int = 0
 
             while (which_row < max_rows){
-                var line = lines[which_row].trim()
-                if(line.isEmpty() or line.contains(';')){
+                var line = removeComment(lines[which_row])
+                if(line.isEmpty()){
                     which_row++
                     continue
                 }
@@ -161,23 +161,51 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
 
     }
 
+    private fun removeComment(line: String): String{
+        return line.substringBefore(';').trim()
+    }
+
+    private fun isNeedToCombine(line: String): Boolean{
+        //next section
+        if(line.startsWith('[')){
+            return false
+        }
+        else if(line.isEmpty()){
+            return false
+        }
+        else{
+            return true
+        }
+    }
+
     private fun parseScreenSection(lines : List<String>, elementType_list : MutableList<cElementType>,
                                    max_rows: Int, start_line: Int): Int {
         var read_lines = 0
         while ((start_line + read_lines) < max_rows){
-            var line = lines[start_line + read_lines].trim()
-            if(line.isEmpty()){
+            var line = removeComment(lines[start_line + read_lines])
+
+            //next section
+            if(line.startsWith('[')){
                 return read_lines
             }
 
-            if(line.contains(';')){
+            if(line.isEmpty()){
                 read_lines++
                 continue
             }
 
             while (line.endsWith("\\") && (start_line + read_lines + 1) < max_rows) {
                 read_lines++
-                line = line.substring(0, line.length - 1) + lines[start_line + read_lines].trim()
+                var next_line = removeComment(lines[start_line + read_lines])
+                if(isNeedToCombine(next_line)) {
+                    line = line.substring(0, line.length - 1) + next_line
+                }
+                else
+                {
+                    line = line.substring(0, line.length - 1)
+                    break
+                }
+
             }
             parseScreenSection(line, elementType_list)
 
@@ -340,19 +368,29 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
                                    max_rows: Int, start_line: Int): Int {
         var read_lines = 0
         while ((start_line + read_lines) < max_rows){
-            var line = lines[start_line + read_lines].trim()
-            if(line.isEmpty()){
+            var line = removeComment(lines[start_line + read_lines])
+
+            //next section
+            if(line.startsWith('[')){
                 return read_lines
             }
 
-            if(line.contains(';')){
+            if(line.isEmpty()){
                 read_lines++
                 continue
             }
 
             while (line.endsWith("\\") && (start_line + read_lines + 1) < max_rows) {
                 read_lines++
-                line = line.substring(0, line.length - 1) + lines[start_line + read_lines].trim()
+                var next_line = removeComment(lines[start_line + read_lines])
+                if(isNeedToCombine(next_line)) {
+                    line = line.substring(0, line.length - 1) + next_line
+                }
+                else
+                {
+                    line = line.substring(0, line.length - 1)
+                    break
+                }
             }
             parseMappingSection(line, elementType_list)
 
@@ -382,18 +420,18 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
             }
             else
             {
-                var x: Int? = src_view_split[0].toIntOrNull()
-                var y: Int? = src_view_split[1].toIntOrNull()
-                var width: Int? = src_view_split[2].toIntOrNull()
-                var height: Int? = src_view_split[3].toIntOrNull()
+                var x: Int? = src_view_split[0].trim().toIntOrNull()
+                var y: Int? = src_view_split[1].trim().toIntOrNull()
+                var width: Int? = src_view_split[2].trim().toIntOrNull()
+                var height: Int? = src_view_split[3].trim().toIntOrNull()
                 if(x == null || y == null || width == null || height == null){
                     return
                 }
                 src_view_crop  = vCropTextureArea(x,y,width,height)
-                x = sink_view_split[0].toIntOrNull()
-                y = sink_view_split[1].toIntOrNull()
-                width = sink_view_split[2].toIntOrNull()
-                height = sink_view_split[3].toIntOrNull()
+                x = sink_view_split[0].trim().toIntOrNull()
+                y = sink_view_split[1].trim().toIntOrNull()
+                width = sink_view_split[2].trim().toIntOrNull()
+                height = sink_view_split[3].trim().toIntOrNull()
                 if(x == null || y == null || width == null || height == null){
                     return
                 }

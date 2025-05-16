@@ -14,6 +14,7 @@ enum class eBufferType{
 interface iParseCodec {
     val BUFFER_FLAG_CODEC_CONFIG: Int
     val BUFFER_FLAG_KEY_FRAME: Int
+    val BITRATE_MULTIPLIER: Int
     fun getBufferType(byteBuffer: ByteBuffer, bufferInfo: MediaCodec.BufferInfo): eBufferType
     fun getBufferType(data: ByteArray): eBufferType
 }
@@ -21,6 +22,7 @@ interface iParseCodec {
 class cParseH265Codec : iParseCodec{
     override val BUFFER_FLAG_CODEC_CONFIG: Int = 32
     override val BUFFER_FLAG_KEY_FRAME: Int = 19
+    override val BITRATE_MULTIPLIER: Int = 2
     override fun getBufferType(byteBuffer: ByteBuffer, bufferInfo: MediaCodec.BufferInfo): eBufferType {
         if(bufferInfo.size > 0) {
             var offSet = 4
@@ -56,6 +58,7 @@ class cParseH265Codec : iParseCodec{
 class cParseH264Codec : iParseCodec{
     override val BUFFER_FLAG_CODEC_CONFIG: Int = 103
     override val BUFFER_FLAG_KEY_FRAME: Int = 101
+    override val BITRATE_MULTIPLIER: Int = 4
     override fun getBufferType(byteBuffer: ByteBuffer, bufferInfo: MediaCodec.BufferInfo): eBufferType {
         if(bufferInfo.size > 0) {
             var offSet = 4
