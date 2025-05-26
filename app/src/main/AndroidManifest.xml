@@ -13,6 +13,9 @@
     <uses-permission android:name="android.permission.CAPTURE_SECURE_VIDEO_OUTPUT" />
     <uses-permission android:name="android.permission.MANAGE_ACTIVITY_TASKS" />
     <uses-permission android:name="android.permission.INTERNAL_SYSTEM_WINDOW"/>
+    <uses-permission android:name="android.permission.START_ANY_ACTIVITY"/>
+    <uses-permission android:name="android.permission.INTERACT_ACROSS_USERS_FULL" />
+    <uses-permission android:name="android.permission.ADD_TRUSTED_DISPLAY" />
 
     <application
         android:allowBackup="true"
@@ -52,6 +55,12 @@
             android:foregroundServiceType="mediaProjection"
             android:enabled="true"
             android:exported="true"></service>
+
+        <provider
+            android:name=".pSQLDataBase.cContentProvider"
+            android:authorities="com.auo.flexCompositor.provider"
+            android:exported="true"
+            android:grantUriPermissions="true" />
     </application>
 
 </manifest>

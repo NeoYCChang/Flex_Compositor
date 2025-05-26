@@ -110,18 +110,18 @@ class EGLHelper {
 
     fun destoryEgl() {
         if (mEgl != null) {
-            // Unbind
-            mEgl!!.eglMakeCurrent(
-                mEglDisplay, EGL10.EGL_NO_SURFACE,
-                EGL10.EGL_NO_SURFACE,
-                EGL10.EGL_NO_CONTEXT
-            )
             // Set surface to null
             mEgl!!.eglDestroySurface(mEglDisplay, mEglSurface)
             mEglSurface = null
             // Set context to null
             mEgl!!.eglDestroyContext(mEglDisplay, mEglContext)
             mEglContext = null
+            // Unbind
+            mEgl!!.eglMakeCurrent(
+                mEglDisplay, EGL10.EGL_NO_SURFACE,
+                EGL10.EGL_NO_SURFACE,
+                EGL10.EGL_NO_CONTEXT
+            )
             // Deactivate the display device
             mEgl!!.eglTerminate(mEglDisplay)
             mEglDisplay = null

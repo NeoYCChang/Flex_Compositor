@@ -6,6 +6,8 @@ import android.content.Context
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.Display
 import android.view.Gravity
@@ -29,6 +31,7 @@ import com.auo.flex_compositor.pEGLFunction.EGLThread
 import com.auo.flex_compositor.pInterface.SerializablePointerCoords
 import com.auo.flex_compositor.pInterface.SerializablePointerProperties
 import com.auo.flex_compositor.pInterface.cMotionEvent
+import com.auo.flex_compositor.pInterface.deWarp_Parameters
 import com.auo.flex_compositor.pInterface.iElement
 import com.auo.flex_compositor.pInterface.iEssentialRenderingTools
 import com.auo.flex_compositor.pInterface.iSurfaceSource
@@ -41,7 +44,8 @@ import com.auo.flex_compositor.pSource.cVirtualDisplay
 
 
 class cDisplayView(context: Context, override val e_name: String, override val e_id: Int, source: iSurfaceSource, displayID: Int,
-                   posSize: vPos_Size, cropTextureArea: vCropTextureArea, touchMapping: vTouchMapping?, isDeWarp: Boolean) :
+                   posSize: vPos_Size, cropTextureArea: vCropTextureArea, touchMapping: vTouchMapping?, dewarpParameters: deWarp_Parameters?
+) :
 SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools {
 
     interface DisplayViewCallback {
@@ -58,7 +62,7 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
     private var m_source: iSurfaceSource = source
     private val m_context: Context = context
     private var m_EGLRender: EGLRender?  = null
-    private var m_isDeWarp: Boolean = isDeWarp
+    private var m_dewarpParameters: deWarp_Parameters? = dewarpParameters
     private val m_displayID = displayID
     private val mTextureSize : Texture_Size = Texture_Size(
         960, 540, 0, 0,
@@ -71,23 +75,24 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
     private var m_layoutParmas: WindowManager.LayoutParams? = null
     // EGL context
     private var eglContext: EGLContext? = m_source?.getEGLContext()
-    private var m_responsible_updating_texture  = false
+
+    // Detect Long Press
+    private val m_longPressHandler = Handler(Looper.getMainLooper())
+    private var m_isLongPress = false
+    private var m_isDestroyed = false
 
     init {
         holder.addCallback(this)
         val display_manager = context.getSystemService(DISPLAY_SERVICE) as DisplayManager
         val display: Display? = display_manager.getDisplay(m_displayID)
         if (display !== null) {
+            Log.d(m_tag, "display flag: ${display.flags}")
             // flag = 4 : Private Display
-            if(display.flags != 4) {
+            if(display.flags != 136) {
                 m_layoutParmas = newLayoutParams(m_posSize)
                 val displayContext: Context = context.createDisplayContext(display)
                 m_window_manager = displayContext.getSystemService(WINDOW_SERVICE) as WindowManager
                 m_window_manager!!.addView(this, m_layoutParmas)
-                if (m_source !== null) {
-                    m_responsible_updating_texture =
-                        !m_source!!.getSurfaceTexture()!!.get_already_binding()
-                }
             }
         }
     }
@@ -114,7 +119,7 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
     }
 
     fun show(){
-        if(m_window_manager !== null && m_layoutParmas !== null) {
+        if(m_window_manager !== null && m_layoutParmas !== null && !m_isDestroyed) {
             m_layoutParmas!!.x = m_posSize.x
             m_layoutParmas!!.y = m_posSize.y
 
@@ -123,7 +128,7 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
     }
 
     fun hide(){
-        if(m_window_manager !== null && m_layoutParmas !== null) {
+        if(m_window_manager !== null && m_layoutParmas !== null && !m_isDestroyed) {
             m_layoutParmas?.x = -m_posSize.width
             m_layoutParmas?.y = -m_posSize.height
 
@@ -154,18 +159,14 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
 
     fun getTextureID() : Int{
         if(m_source !== null) {
-            return m_source!!.getSurfaceTexture()!!.getTextureID()
+            return m_source.getSurfaceTexture().getTextureID()
         }
         else{
             return  -1
         }
     }
 
-    override fun getUpdatingTexture() : Boolean{
-        return m_responsible_updating_texture
-    }
-
-    override fun getSource() : iSurfaceSource?{
+    override fun getSource() : iSurfaceSource{
         return m_source
     }
 
@@ -210,21 +211,22 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
             return
         }
         if(m_source !== null) {
+            Log.d(m_tag, "dewarp ${m_dewarpParameters}")
             m_EGLRender = EGLRender(
                 m_context,
-                m_source!!.getSurfaceTexture()!!.getTextureID(),
-                m_isDeWarp
+                m_source.getSurfaceTexture().getTextureID(),
+                m_dewarpParameters
             )
 
-            m_source!!.getSurfaceTexture()?.addListener { this.requestRender() }
+            val isMainEGLThread = m_source.getSurfaceTexture().setListener { this.requestRender()}
             setTextureCrop(m_cropTextureArea)
-            mTextureSize.width = m_source!!.getSurfaceTexture()!!.getWidth()
-            mTextureSize.height = m_source!!.getSurfaceTexture()!!.getHeight()
+            mTextureSize.width = m_source.getSurfaceTexture().getWidth()
+            mTextureSize.height = m_source.getSurfaceTexture().getHeight()
 
             m_EGLRender!!.setTextureSize(mTextureSize)
 
 
-            eglThread = EGLThread(WeakReference(this))
+            eglThread = EGLThread(WeakReference(this), isMainEGLThread)
             eglThread!!.start()
         }
     }
@@ -235,18 +237,25 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        eglThread!!.onDestory()
         eglThread = null
         m_surface = null
         eglContext = null
     }
 
     fun destroyed(){
-        m_window_manager?.removeViewImmediate(this)
+        if(!m_isDestroyed) {
+            eglThread?.onDestory()
+            eglThread?.join()
+            m_EGLRender = null
+            m_window_manager?.removeViewImmediate(this)
+            //m_window_manager?.removeView(this)
+            m_isDestroyed = !m_isDestroyed
+        }
     }
 
     // Override this method to handle touch events
     override fun onTouchEvent(motionEvent: MotionEvent): Boolean {
+        detectLongPress(motionEvent)
         if(m_source !== null && m_touchMapping != null) {
             val touchmapper: iTouchMapper = m_source as iTouchMapper
             val pointerCount = motionEvent.pointerCount
@@ -274,12 +283,39 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
 
             touchmapper.injectMotionEvent(cMotionEvent)
         }
-        return true // Return true to indicate the event was handled
+        return false // Return true to indicate the event was handled
+    }
+
+    //Remove the DisplayView after pressing and holding the top-left corner of
+    // the DisplayView for 5 seconds
+    private fun detectLongPress(motionEvent: MotionEvent){
+        when (motionEvent.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                val x = motionEvent.getX(0)
+                val y = motionEvent.getY(0)
+                if(x <= 100 && y <= 100) {
+                    m_isLongPress = false
+                    m_longPressHandler.postDelayed({
+                        m_isLongPress = true
+                        destroyed()
+                        Log.d(m_tag, "Long press exceeded 5 seconds — destroying $e_name")
+                    }, 5000)
+                }
+            }
+
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                m_longPressHandler.removeCallbacksAndMessages(null)
+            }
+        }
     }
 
 
     override fun getSurface(): Surface? {
         return m_surface
+    }
+
+    override fun Sync(sync_count: Int): Boolean {
+        return false
     }
 
 

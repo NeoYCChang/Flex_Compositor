@@ -2,12 +2,15 @@ package com.auo.flex_compositor.pParse
 
 import android.content.Context
 import android.util.Log
+import com.auo.flex_compositor.pInterface.deWarp_Parameters
 import com.auo.flex_compositor.pInterface.eCodecType
 import java.io.File
 import com.auo.flex_compositor.pInterface.vSize
 import com.auo.flex_compositor.pInterface.vPos_Size
 import com.auo.flex_compositor.pInterface.vTouchMapping
 import com.auo.flex_compositor.pInterface.vCropTextureArea
+import com.auo.flex_compositor.pSQLDataBase.cContentManager
+import java.util.ArrayList
 
 enum class eElementType{
     VIRTUALDISPLAY, DISPLAYVIEW, STREAM, STREAMENCODER, STREAMDECODER, NULLTYPE
@@ -31,7 +34,8 @@ open class cFlexStreamElement(
     override var sink: MutableList<Int>? = null,
     open var serverIP: String,
     open var serverPort: String,
-    open var codecType: eCodecType
+    open var codecType: eCodecType,
+    open var bitrate: Int
 ) : cElementType(id, name, type, size, source, sink)
 
 data class cFlexVirtualDisplay(
@@ -53,7 +57,8 @@ data class cFlexDisplayView(
     var displayid: Int,
     var posSize: MutableList<vPos_Size>,
     var crop_texture: MutableList<vCropTextureArea>,
-    var touchmapping: MutableList<vTouchMapping>
+    var touchmapping: MutableList<vTouchMapping>,
+    var dewarpParameters: MutableList<deWarp_Parameters?>
 ) : cElementType(id, name, type, vSize(0, 0), source, sink)
 
 data class cFlexEncoder(
@@ -67,8 +72,10 @@ data class cFlexEncoder(
     var touchmapping: vTouchMapping,
     override var serverIP: String,
     override var serverPort: String,
-    override var codecType: eCodecType
-) : cFlexStreamElement(id, name, type, size, source, sink, serverIP, serverPort, codecType)
+    override var codecType: eCodecType,
+    override var bitrate: Int,
+    var dewarpParameters: deWarp_Parameters?
+) : cFlexStreamElement(id, name, type, size, source, sink, serverIP, serverPort, codecType, bitrate)
 
 data class cFlexDecoder(
     override var id: Int,
@@ -79,8 +86,13 @@ data class cFlexDecoder(
     override var sink: MutableList<Int>?,
     override var serverIP: String,
     override var serverPort: String,
-    override var codecType: eCodecType
-) : cFlexStreamElement(id, name, type, size, source, sink, serverIP, serverPort, codecType)
+    override var codecType: eCodecType,
+    override var bitrate: Int
+) : cFlexStreamElement(id, name, type, size, source, sink, serverIP, serverPort, codecType, bitrate)
+
+data class cSinkOption(
+    var dewarpParameters: deWarp_Parameters?
+)
 
 
 
@@ -88,6 +100,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
     private val m_context = context
     private val m_flexCompositorINI = flexCompositorINI
     private val m_elements = mutableListOf<cElementType>()
+    private val contentManager: cContentManager = cContentManager(context)
     private val m_tag = "cParseFlexCompositor"
 
     fun getElements(): MutableList<cElementType>
@@ -95,69 +108,98 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
         return m_elements
     }
 
+//    fun parse(){
+//        m_elements.clear()
+//        Log.d(m_tag,"${m_context.filesDir}")
+//        //val file = File(m_context.filesDir, m_flexCompositorINI)
+//        val file = File("/data/system", m_flexCompositorINI)
+//
+//        val config = """
+//            ;====SA8295 flexCompositor.ini===
+//            [screen]
+//            ;screenName=interface-number,resolution,attrib(value…)
+//            ;    interface : virtual/stream/hdmi/dp/lvds/vnc
+//            ;    attribute enumeration
+//            ;        touch(interface-num,x,y,width,height)
+//            ;            interface: virTouch,streamTouch,hidTouch
+//            ;        app(pathname)
+//            virtualDisplay=virtual-1,1920x1080,\
+//                touch(virtual-1,0,227,1365,853),\
+//                app(org.cid.example/org.qtproject.qt.android.bindings.QtActivity)
+//            dpDisplay=dp-0,5500x650
+//            videoStream=stream-1,1920x1080,\
+//                server(127.0.0.1,50000),\
+//                touch(stream-1,0,0,1365,853)
+//            videoStream2=stream-2,1920x1080,\
+//                    server(127.0.0.1,50000)
+//
+//            [mapping]
+//            ;screen routing map
+//            ;source(x,y,width,height)->sink(x,y,width,height)
+//            virtualDisplay(0,0,1920,227)->dpDisplay(500,500,5500,650)
+//            virtualDisplay(0,227,1365,853)->videoStream(0,0,1920,1080)
+//            videoStream2(960,540,960,540)->dpDisplay(0,0,960,540)
+//        """.trimIndent()
+//        //file.writeText(config)
+////        val lines = config.split("\n")
+//        if (file.exists()) {
+//            val lines : List<String> = file.readLines()
+//
+//            val max_rows: Int = lines.size
+//            var which_row: Int = 0
+//
+//            while (which_row < max_rows){
+//                var line = removeComment(lines[which_row])
+//                if(line.isEmpty()){
+//                    which_row++
+//                    continue
+//                }
+//
+//                if(line.startsWith('[')){
+//                    line = line.trim('[',']')
+//                    if(line.equals("screen")) {
+//                        which_row++
+//                        which_row += parseScreenSection(lines, m_elements, max_rows, which_row)
+//                    }
+//                    if(line.equals("mapping")) {
+//                        which_row++
+//                        which_row += parseMappingSection(lines, m_elements, max_rows, which_row)
+//                    }
+//                }
+//            }
+//        } else {
+//            Log.e(m_tag, "INI file not found in app storage")
+//        }
+//
+//
+//    }
+
     fun parse(){
         m_elements.clear()
-        Log.d(m_tag,"${m_context.filesDir}")
-        //val file = File(m_context.filesDir, m_flexCompositorINI)
-        val file = File("/data/system", m_flexCompositorINI)
+        val lines : List<String> = contentManager.getCommandLines()
 
-        val config = """
-            ;====SA8295 flexCompositor.ini===
-            [screen]
-            ;screenName=interface-number,resolution,attrib(value…)
-            ;    interface : virtual/stream/hdmi/dp/lvds/vnc
-            ;    attribute enumeration
-            ;        touch(interface-num,x,y,width,height)
-            ;            interface: virTouch,streamTouch,hidTouch
-            ;        app(pathname)
-            virtualDisplay=virtual-1,1920x1080,\
-                touch(virtual-1,0,227,1365,853),\
-                app(org.cid.example/org.qtproject.qt.android.bindings.QtActivity)
-            dpDisplay=dp-0,5500x650
-            videoStream=stream-1,1920x1080,\
-                server(127.0.0.1,50000),\
-                touch(stream-1,0,0,1365,853)
-            videoStream2=stream-2,1920x1080,\
-                    server(127.0.0.1,50000)
-                
-            [mapping]
-            ;screen routing map
-            ;source(x,y,width,height)->sink(x,y,width,height)
-            virtualDisplay(0,0,1920,227)->dpDisplay(500,500,5500,650)
-            virtualDisplay(0,227,1365,853)->videoStream(0,0,1920,1080)
-            videoStream2(960,540,960,540)->dpDisplay(0,0,960,540)
-        """.trimIndent()
-        //file.writeText(config)
-//        val lines = config.split("\n")
-        if (file.exists()) {
-            val lines : List<String> = file.readLines()
+        val max_rows: Int = lines.size
+        var which_row: Int = 0
 
-            val max_rows: Int = lines.size
-            var which_row: Int = 0
+        while (which_row < max_rows){
+            var line = removeComment(lines[which_row])
+            if(line.isEmpty()){
+                which_row++
+                continue
+            }
 
-            while (which_row < max_rows){
-                var line = removeComment(lines[which_row])
-                if(line.isEmpty()){
+            if(line.startsWith('[')){
+                line = line.trim('[',']')
+                if(line.equals("screen")) {
                     which_row++
-                    continue
+                    which_row += parseScreenSection(lines, m_elements, max_rows, which_row)
                 }
-
-                if(line.startsWith('[')){
-                    line = line.trim('[',']')
-                    if(line.equals("screen")) {
-                        which_row++
-                        which_row += parseScreenSection(lines, m_elements, max_rows, which_row)
-                    }
-                    if(line.equals("mapping")) {
-                        which_row++
-                        which_row += parseMappingSection(lines, m_elements, max_rows, which_row)
-                    }
+                if(line.equals("mapping")) {
+                    which_row++
+                    which_row += parseMappingSection(lines, m_elements, max_rows, which_row)
                 }
             }
-        } else {
-            Log.e(m_tag, "INI file not found in app storage")
         }
-
 
     }
 
@@ -176,6 +218,17 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
         else{
             return true
         }
+    }
+
+    private fun parseAmount(input: String): Int {
+        val multiplier = when {
+            input.endsWith("k", ignoreCase = true) -> 1_000
+            input.endsWith("m", ignoreCase = true) -> 1_000_000
+            input.endsWith("b", ignoreCase = true) -> 1_000_000_000
+            else -> 1
+        }
+        val numberPart = input.dropLastWhile { it.isLetter() }.toInt()
+        return numberPart * multiplier
     }
 
     private fun parseScreenSection(lines : List<String>, elementType_list : MutableList<cElementType>,
@@ -306,7 +359,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
         var offset: Int = 0
         var newcElementType: cFlexDisplayView = cFlexDisplayView(elementID,name,type,null,null,
             0, mutableListOf<vPos_Size>(), mutableListOf<vCropTextureArea>(),
-            mutableListOf<vTouchMapping>()
+            mutableListOf<vTouchMapping>(), mutableListOf<deWarp_Parameters?>()
         )
         while (offset < line_split.size){
             when {
@@ -329,7 +382,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
     private fun parseStreamElement(name: String, line_split: List<String>, elementID : Int) : cElementType{
         var type : eElementType = eElementType.STREAM
         var offset: Int = 2
-        var newcElementType: cFlexStreamElement = cFlexStreamElement(elementID,name,type,vSize(960,540),null,null,"127.0.0.1","50000", eCodecType.H265)
+        var newcElementType: cFlexStreamElement = cFlexStreamElement(elementID,name,type,vSize(960,540),null,null,"127.0.0.1","50000", eCodecType.H265, 5000000)
         while (offset < line_split.size){
             when {
                 line_split[offset].contains("server", ignoreCase = true) -> {
@@ -354,6 +407,11 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
                             newcElementType.codecType = eCodecType.H265
                         }
                     }
+                    Log.d(m_tag,"Stream codec option")
+                }
+                line_split[offset].contains("bitrate", ignoreCase = true) -> {
+                    val result = line_split[offset].substringAfter("(").substringBefore(")")
+                    newcElementType.bitrate = parseAmount(result)
                     Log.d(m_tag,"Stream codec option")
                 }
             }
@@ -409,6 +467,8 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
             val source_view = source_with_view.substringAfter("(").substringBefore(")")
             val sink = sink_with_view.substringBefore("(")
             val sink_view = sink_with_view.substringAfter("(").substringBefore(")")
+            val sinkOption: cSinkOption = cSinkOption(null)
+            parseSinkOption(sink_with_view, sinkOption)
 
             val src_view_split = source_view.split(',')
             val sink_view_split = sink_view.split(',')
@@ -456,7 +516,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
                                 val decoder: cFlexStreamElement = maybeSource as cFlexStreamElement
                                 elementType_list[i] = cFlexDecoder(decoder.id, decoder.name,
                                     eElementType.STREAMDECODER, decoder.size, null, null,
-                                    decoder.serverIP, decoder.serverPort, decoder.codecType)
+                                    decoder.serverIP, decoder.serverPort, decoder.codecType, decoder.bitrate)
                                 maybeSource = elementType_list[i]
                             }
                             if(maybeSink.type == eElementType.STREAM){
@@ -465,7 +525,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
                                     eElementType.STREAMENCODER, maybeSink.size, null, null,
                                     src_view_crop,
                                     vTouchMapping(src_view_crop.offsetX,src_view_crop.offsetY,src_view_crop.width,src_view_crop.height),
-                                    encoder.serverIP, encoder.serverPort, encoder.codecType)
+                                    encoder.serverIP, encoder.serverPort, encoder.codecType, encoder.bitrate, sinkOption.dewarpParameters)
                                 maybeSink = elementType_list[j]
                             }
 
@@ -484,6 +544,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
                                 displayview.posSize.add(sink_view_posSize)
                                 displayview.crop_texture.add(src_view_crop)
                                 displayview.touchmapping.add(vTouchMapping(src_view_crop.offsetX,src_view_crop.offsetY,src_view_crop.width,src_view_crop.height))
+                                displayview.dewarpParameters.add(sinkOption.dewarpParameters)
                             }
 
                             Log.d(m_tag,"Match successful \n Source:${maybeSource}\n Sink:${maybeSink}\n")
@@ -493,6 +554,43 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
             }
         } else {
             Log.d(m_tag,"Format error: Unable to separate key and value.")
+        }
+    }
+
+    private fun parseSinkOption(line : String, sinkOption: cSinkOption) {
+        //Only split at commas[','] that are not inside parentheses["(*)"]
+        val split_value = line.split(Regex(""",(?=(?:[^()]*\([^)]*\))*[^)]*$)"""))
+        if (split_value.size > 1) {
+            for (i in 1 until split_value.size) {
+                when {
+                    split_value[i].contains("dewarp", ignoreCase = true) -> {
+                        val result = split_value[i].substringAfter("(").substringBefore(")")
+                        val result_split = result.split(',')
+                        if(result_split.size >= 2){
+                            val enable = result_split[0].trim().toBoolean()
+                            if(enable) {
+                                val split_size_str = result_split[1].trim().split('x')
+
+                                if (split_size_str.size == 2) {
+                                    val column = split_size_str[0].trim().toIntOrNull()
+                                    val row = split_size_str[1].trim().toIntOrNull()
+
+                                    if (column != null && row != null) {
+                                        sinkOption.dewarpParameters =
+                                            deWarp_Parameters(ArrayList<Float>(), ArrayList<Float>(), column, row)
+                                        val vertices = sinkOption.dewarpParameters!!.vertices
+                                        for (j in 2 until (result_split.size - 1) step 2) {
+                                            vertices.add(result_split[j].trim().toFloatOrNull()?:0.0f)
+                                            vertices.add(result_split[j+1].trim().toFloatOrNull()?:0.0f)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                }
+            }
         }
     }
 

@@ -16,5 +16,5 @@ interface iElement {
 
 interface iSurfaceSource: iElement, iTouchMapper {
     fun getEGLContext(): EGLContext?
-    fun getSurfaceTexture(): cSurfaceTexture?
+    fun getSurfaceTexture(): cSurfaceTexture
 }

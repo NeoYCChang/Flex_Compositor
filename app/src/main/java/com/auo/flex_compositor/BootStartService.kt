@@ -32,8 +32,13 @@ class BootStartService : Service() {
     private val m_tag = "BootStartService"
     private val m_dataReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            var hideview = intent.getBooleanExtra("visible", false)
-            setVisibility(hideview)
+            var visible = intent.getBooleanExtra("visible", false)
+            var restart = intent.getBooleanExtra("restart", false)
+            if(restart){
+                reStart()
+            }else {
+                setVisibility(visible)
+            }
         }
     }
 
@@ -42,12 +47,12 @@ class BootStartService : Service() {
         super.onCreate()
         val filter = IntentFilter("com.auo.flex_compositor.UPDATE_DATA")
         registerReceiver(m_dataReceiver, filter, Context.RECEIVER_EXPORTED)
-        ServiceStartForeground()
-        generateElements()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d("BootStartService", "Running in foreground")
+        ServiceStartForeground()
+        reStart()
         return super.onStartCommand(intent, flags, startId)
     }
 
@@ -112,7 +117,7 @@ class BootStartService : Service() {
                                     Downcasting.posSize[i],
                                     Downcasting.crop_texture[i],
                                     Downcasting.touchmapping[i],
-                                    false,
+                                    Downcasting.dewarpParameters[i],
                                 )
                                 m_DisplayViews.add(displayView)
                             }
@@ -135,7 +140,7 @@ class BootStartService : Service() {
                                     Downcasting.crop_texture,
                                     Downcasting.touchmapping,
                                     Downcasting.serverPort.toInt(),
-                                    false,
+                                    Downcasting.dewarpParameters,
                                     Downcasting.codecType
                                 )
                                 m_MediaEncoders.add(encoder)
@@ -167,6 +172,26 @@ class BootStartService : Service() {
                 element.hide()
             }
         }
+    }
+
+    private fun reStart(){
+        for (element in m_DisplayViews) {
+            element.destroyed()
+        }
+        for (element in m_MediaEncoders) {
+            element.stopEncode()
+        }
+        for (element in m_MediaDecoders) {
+            element.stopDecode()
+        }
+        for (element in m_VirtualDisplays) {
+            element.destroyed()
+        }
+        m_DisplayViews.clear()
+        m_MediaEncoders.clear()
+        m_MediaDecoders.clear()
+        m_VirtualDisplays.clear()
+        generateElements()
     }
 
     override fun onDestroy() {

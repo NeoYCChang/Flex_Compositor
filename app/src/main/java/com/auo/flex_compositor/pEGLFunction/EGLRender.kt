@@ -7,6 +7,7 @@ import android.opengl.GLES11Ext
 import android.opengl.GLES20
 import android.opengl.GLES30
 import android.util.Log
+import com.auo.flex_compositor.pInterface.deWarp_Parameters
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.locks.ReentrantLock
@@ -44,7 +45,7 @@ class EGLRender {
         960, 540, 0, 0,
         960,540
     )
-    private var m_isDeWarp: Boolean = false
+    private var m_dewarpParameters: deWarp_Parameters? = null
 
 
     private val m_render_parameters : Render_Parameters = Render_Parameters(
@@ -53,10 +54,10 @@ class EGLRender {
 
 
     // Set up shaders and program (vertex shader and fragment shader)
-    constructor(context : Context, textureid : Int, isDeWarp: Boolean) : super() {
+    constructor(context : Context, textureid : Int, dewarpParameters: deWarp_Parameters?) : super() {
         m_context = context
         mTextureID = textureid
-        m_isDeWarp = isDeWarp
+        m_dewarpParameters = dewarpParameters
     }
 
     fun onSurfaceCreated() {
@@ -73,10 +74,10 @@ class EGLRender {
         m_positionHandle = handles[0]
         m_texCoordHandle = handles[1]
 
-        if(m_isDeWarp){
+        if(m_dewarpParameters != null){
             // It is possible that the incorrect XML format may cause it to return false.
             // In this case, the system will switch to normal mode.
-            if(!setDeWarpMode(m_context!!.resources, "shader/dewarp.xml", m_render_parameters, mTextureSize)){
+            if(!setDeWarpMode(m_render_parameters, mTextureSize, m_dewarpParameters!!)){
                 setNormalMode(m_render_parameters, mTextureSize)
             }
         }
@@ -253,6 +254,44 @@ class EGLRender {
         vertices.add(-1.0f);vertices.add(-1.0f);vertices.add(0.0f)
         vertices.add(1.0f);vertices.add(-1.0f);vertices.add(0.0f)
 
+    }
+
+    private fun setDeWarpMode(renderParameters: Render_Parameters, textureSize : Texture_Size,
+                                dewarpParameters: deWarp_Parameters): Boolean{
+        val left = textureSize.offsetX.toFloat() / textureSize.width.toFloat()
+        val top = textureSize.offsetY.toFloat() / textureSize.height.toFloat()
+        val right = (textureSize.offsetX + textureSize.cropWidth).toFloat() / textureSize.width.toFloat()
+        val bottom = (textureSize.offsetY + textureSize.cropHeight).toFloat() / textureSize.height.toFloat()
+        if( dewarpParameters.column >= 2 && dewarpParameters.row >= 2) {
+            renderParameters.column = dewarpParameters.column
+            renderParameters.row = dewarpParameters.row
+            renderParameters.countOfTriangles = (renderParameters.column - 1) * (renderParameters.row - 1) * 2 * 3
+            val vertices = renderParameters.vertices
+            val textcoods = renderParameters.textcoods
+            vertices.clear()
+            textcoods.clear()
+            var vertex_offset = 0
+            for (i in 0 until (renderParameters.column * renderParameters.row)) {
+                if (vertex_offset < dewarpParameters.vertices.size) {
+                    var x = dewarpParameters.vertices[vertex_offset];vertex_offset++
+                    x = x * 2.0f - 1.0f
+                    var y = dewarpParameters.vertices[vertex_offset];vertex_offset++
+                    y = 1.0f - y * 2.0f
+                    vertices.add(x)
+                    vertices.add(y)
+                    vertices.add(0.0f);
+                } else {
+                    vertices.add(0.0f);vertices.add(0.0f);vertices.add(0.0f);
+                }
+                val texture_x =
+                    1.0f * (i % renderParameters.column).toFloat() / (renderParameters.column-1).toFloat() * (right - left) + left
+                val texture_y =
+                    1.0f * (i / renderParameters.column).toFloat() / (renderParameters.row-1).toFloat() * (bottom - top) + top
+
+                textcoods.add(texture_x);textcoods.add(texture_y) // x;y
+            }
+        }else return false
+        return true
     }
 
     private fun setDeWarpMode(resources: Resources, dewarp_file: String, renderParameters: Render_Parameters,

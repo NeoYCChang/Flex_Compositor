@@ -28,6 +28,8 @@ import com.auo.flex_compositor.pView.cSurfaceTexture
 import kotlinx.serialization.json.Json
 import java.io.IOException
 import java.net.URI
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.locks.ReentrantLock
 import javax.microedition.khronos.egl.EGLContext
 import kotlin.concurrent.withLock
@@ -44,7 +46,7 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
     private var m_parseCodec: iParseCodec? = null
 
     private val m_eglcontext: EGLContext? = StaticVariable.public_eglcontext
-    private var m_SurfaseTexture: cSurfaceTexture? = null
+    private lateinit var m_SurfaseTexture: cSurfaceTexture
     private var m_Surface: Surface? = null
     private var m_size = size
 
@@ -99,7 +101,7 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
     }
 
     // Starts decoding by configuring the MediaCodec for the specific video format
-    fun startDecode() {
+    private fun startDecode() {
 //        val decoders = getAvailableDecoders()
 //        for (decoder in decoders) {
 //            println("Available eecoder: $decoder")
@@ -165,7 +167,7 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
         }
     }
     // This function decodes the video data frame by frame
-    fun decodeData(data: ByteArray) {
+    private fun decodeData(data: ByteArray) {
         // If VPS has not been received yet, check for VPS in the data
         if(!m_isGetVPS){
             if(data.size < 5) return
@@ -185,10 +187,10 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
         tryToDecodeData(data)
     }
 
-    fun tryToDecodeData(data: ByteArray){
+    private fun tryToDecodeData(data: ByteArray){
         m_decodeDataLock.withLock {
             m_dataDeque.addLast(data)
-            if (m_dataDeque.size > 0 && m_inputIndexDeque.size > 0) {
+            while (m_dataDeque.size > 0 && m_inputIndexDeque.size > 0) {
                 val data = m_dataDeque.removeFirst()
                 val inputIndex = m_inputIndexDeque.removeFirst()
                 if (inputIndex >= 0) {
@@ -207,10 +209,10 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
         }
     }
 
-    fun tryToDecodeData(index: Int){
+    private fun tryToDecodeData(index: Int){
         m_decodeDataLock.withLock {
             m_inputIndexDeque.addLast(index)
-            if (m_dataDeque.size > 0 && m_inputIndexDeque.size > 0) {
+            while (m_dataDeque.size > 0 && m_inputIndexDeque.size > 0) {
                 val data = m_dataDeque.removeFirst()
                 val inputIndex = m_inputIndexDeque.removeFirst()
                 if (inputIndex >= 0) {
@@ -229,7 +231,7 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
         }
     }
 
-    fun startThread(thread: HandlerThread) : Handler{
+    private fun startThread(thread: HandlerThread) : Handler{
         thread.start();
         return Handler(thread.getLooper())
     }
@@ -243,6 +245,7 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
             m_webSocketClient!!.close()
         }
         m_codecThread?.quitSafely()
+        m_Surface?.release()
     }
 
     override fun injectMotionEvent(cmotionEvent: cMotionEvent) {
@@ -266,7 +269,7 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
         return m_eglcontext
     }
 
-    override fun getSurfaceTexture(): cSurfaceTexture?{
+    override fun getSurfaceTexture(): cSurfaceTexture{
         return m_SurfaseTexture
     }
 

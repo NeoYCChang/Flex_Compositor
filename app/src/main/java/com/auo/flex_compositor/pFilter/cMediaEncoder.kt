@@ -14,6 +14,7 @@ import com.auo.flex_compositor.pEGLFunction.EGLThread
 import com.auo.flex_compositor.pInterface.cMotionEvent
 import com.auo.flex_compositor.pInterface.cParseH264Codec
 import com.auo.flex_compositor.pInterface.cParseH265Codec
+import com.auo.flex_compositor.pInterface.deWarp_Parameters
 import com.auo.flex_compositor.pInterface.eBufferType
 import com.auo.flex_compositor.pInterface.eCodecType
 import com.auo.flex_compositor.pInterface.iElement
@@ -30,21 +31,24 @@ import java.io.IOException
 import java.lang.ref.WeakReference
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import java.util.concurrent.locks.ReentrantLock
 import javax.microedition.khronos.egl.EGLContext
+import kotlin.concurrent.withLock
 
 class cMediaEncoder(context: Context, override val e_name: String, override val e_id: Int, source: iSurfaceSource,
-                    size: vSize, cropTextureArea: vCropTextureArea, touchMapping: vTouchMapping?, serverport: Int,isDeWarp: Boolean,
-                    codecType: eCodecType = eCodecType.H264)
+                    size: vSize, cropTextureArea: vCropTextureArea, touchMapping: vTouchMapping?, serverport: Int,
+                    dewarpParameters: deWarp_Parameters?, codecType: eCodecType = eCodecType.H264)
     : iElement, iEssentialRenderingTools {
 
     private var m_source: iSurfaceSource = source
-    private var m_responsible_updating_texture  = if (m_source !== null) !m_source!!.getSurfaceTexture()!!.get_already_binding() else false
     private val m_context: Context = context
     private var eglContext: EGLContext? = m_source?.getEGLContext()
     private var m_EGLRender: EGLRender?  = null
     private var m_surface: Surface? = null
     private val m_cropTextureArea = cropTextureArea
-    private var m_isDeWarp: Boolean = isDeWarp
+    private var m_dewarpParameters: deWarp_Parameters? = dewarpParameters
     private val m_touchMapping = touchMapping
     private val m_vsize: vSize =  size
     private val mTextureSize : Texture_Size = Texture_Size(
@@ -74,6 +78,7 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
     private var m_codecHandle: Handler? = null
 
     private val m_tag: String  = "cMediaEncoder"
+    private var m_sync_count: Int =0
 
     init {
         val callback = object : cWebSocketServer.SocketCallback{
@@ -90,24 +95,24 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
 
         m_EGLRender = EGLRender(
             m_context,
-            m_source!!.getSurfaceTexture()!!.getTextureID(),
-            m_isDeWarp
+            m_source.getSurfaceTexture().getTextureID(),
+            m_dewarpParameters
         )
 
         mTextureSize.offsetX = m_cropTextureArea.offsetX
         mTextureSize.offsetY = m_cropTextureArea.offsetY
         mTextureSize.cropWidth  = m_cropTextureArea.width
         mTextureSize.cropHeight = m_cropTextureArea.height
-        mTextureSize.width = m_source!!.getSurfaceTexture()!!.getWidth()
-        mTextureSize.height = m_source!!.getSurfaceTexture()!!.getHeight()
+        mTextureSize.width = m_source.getSurfaceTexture().getWidth()
+        mTextureSize.height = m_source.getSurfaceTexture().getHeight()
 
         m_EGLRender!!.setTextureSize(mTextureSize)
 
-        m_source!!.getSurfaceTexture()?.addListener { this.requestRender() }
-        eglThread = EGLThread(WeakReference(this))
+        val isMainEGLThread = m_source.getSurfaceTexture().setListener { this.requestRender()}
+        eglThread = EGLThread(WeakReference(this), isMainEGLThread)
         eglThread!!.width = m_vsize.width
         eglThread!!.height = m_vsize.height
-        eglThread!!.start()
+        eglThread!!.start() // need to run it after startEncode()
     }
 
     fun getTextureSize() : Texture_Size{
@@ -129,7 +134,7 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
 
     fun getTextureID() : Int{
         if(m_source !== null) {
-            return m_source!!.getSurfaceTexture()!!.getTextureID()
+            return m_source.getSurfaceTexture().getTextureID()
         }
         else{
             return  -1
@@ -165,7 +170,7 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
         }
     }
 
-    fun startEncode() {
+    private fun startEncode() {
         var mimetype: String = MediaFormat.MIMETYPE_VIDEO_HEVC
         when (m_codecType) {
             eCodecType.H265 -> {
@@ -204,12 +209,19 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
             }
 
             override fun onOutputBufferAvailable(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
-                if (index >= 0) {
-                    val byteBuffer = codec.getOutputBuffer(index)
-                    if (byteBuffer != null) {
-                        encodeData(byteBuffer, info)
+                try {
+                    if (index >= 0) {
+                        val byteBuffer = codec.getOutputBuffer(index)
+                        if (byteBuffer != null) {
+                            encodeData(byteBuffer, info)
+                        }
+                        codec.releaseOutputBuffer(index, false)
+                        updateSyncCount()
                     }
-                    codec.releaseOutputBuffer(index, false)
+                } catch (e: IllegalStateException) {
+                    Log.e(m_tag, "IllegalStateException: ${e.message}")
+                } catch (e: MediaCodec.CodecException) {
+                    Log.e(m_tag, "CodecException: ${e.diagnosticInfo}")
                 }
             }
 
@@ -230,7 +242,7 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
         mMediaCodec?.start()
     }
 
-    fun startThread(thread: HandlerThread) : Handler{
+    private fun startThread(thread: HandlerThread) : Handler{
         thread.start();
         return Handler(thread.getLooper())
     }
@@ -241,14 +253,16 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
             mMediaCodec!!.stop()
             mMediaCodec!!.release()
         }
-        eglThread!!.onDestory()
+        eglThread?.onDestory()
+        eglThread?.join()
         eglThread = null
         m_webSocketServer?.close()
         m_webSocketServer?.stop()
         m_codecThread?.quitSafely()
+        m_surface?.release()
     }
 
-    fun onTouchEvent(data: ByteArray) {
+    private fun onTouchEvent(data: ByteArray) {
         if(data.size > 0) {
             try {
                 val jsonString = data.toString(Charsets.UTF_8)
@@ -306,11 +320,8 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
 //        return true // Return true to indicate the event was handled
     }
 
-    override fun getUpdatingTexture() : Boolean{
-        return m_responsible_updating_texture
-    }
 
-    override fun getSource() : iSurfaceSource?{
+    override fun getSource() : iSurfaceSource{
         return m_source
     }
 
@@ -324,6 +335,33 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
 
     override fun getSurface(): Surface? {
         return m_surface
+    }
+
+    // Detect the difference between the encoder's encoding count
+    // and the EGLThread's draw count to determine whether to clear the encoder cache.
+    override fun Sync(sync_count: Int): Boolean {
+        val Subtract_sync_count = sync_count - m_sync_count
+        if (kotlin.math.abs(Subtract_sync_count) >= 3) {
+            Log.d(m_tag, "Synchronization between cMediaEncoder and EGLThread ${Subtract_sync_count} ")
+            m_sync_count = 0
+            mMediaCodec?.flush()
+            mMediaCodec?.start()
+            return true
+        }
+        return false
+    }
+
+    private fun updateSyncCount(){
+//        val current = LocalDateTime.now()
+//        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
+//        val formatted = current.format(formatter)
+//        Log.d(m_tag, "encoder ${m_sync_count}  ${formatted}")
+        if(m_sync_count == Int.MAX_VALUE){
+            m_sync_count = 0
+        }
+        else {
+            m_sync_count++
+        }
     }
 
     fun requestRender() {

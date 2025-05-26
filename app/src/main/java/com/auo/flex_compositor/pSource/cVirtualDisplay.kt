@@ -1,5 +1,6 @@
 package com.auo.flex_compositor.pSource
 
+import android.annotation.SuppressLint
 import android.app.ActivityOptions
 import android.app.Service.DISPLAY_SERVICE
 import android.app.Service.INPUT_SERVICE
@@ -38,7 +39,7 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
 
     private var m_virtual_display: VirtualDisplay? = null
     private val m_eglcontext: EGLContext? = StaticVariable.public_eglcontext
-    private var m_SurfaseTexture: cSurfaceTexture? = null
+    private lateinit var m_SurfaseTexture: cSurfaceTexture
     private var m_Surface: Surface? = null
     private var m_injectInputEventMethod : Method? = null
     private var m_motionSetDisplayIdMethod : Method? = null
@@ -55,20 +56,22 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
     constructor(context: Context, name: String, id: Int, size: vSize, appName: String?) : this(name, id)  {
         val textureid: Int = EGLRender.createOESTextureObject()
         m_SurfaseTexture = cSurfaceTexture(textureid)
-        m_SurfaseTexture?.setDefaultBufferSize(size.width, size.height)
+        m_SurfaseTexture.setDefaultBufferSize(size.width, size.height)
         m_Surface = Surface(m_SurfaseTexture)
         m_appName = appName
         val display_manager = context.getSystemService(DISPLAY_SERVICE) as DisplayManager
+        @SuppressLint("WrongConstant")
         m_virtual_display = display_manager.createVirtualDisplay(
             name,
             size.width,
             size.height,
             240,
             m_Surface,
-            0
+            0x100 or //virtual displays will always destroy their content on removal
+            0x400  //Indicates that the display is trusted
         )
-        Log.d(m_tag, "Create a Virtual Display {displayId: ${m_virtual_display!!.display.displayId} textureid: $textureid}")
-
+        Log.d(m_tag, "Create a Virtual Display {displayId: ${m_virtual_display!!.display.displayId} textureid: $textureid  flag: ${m_virtual_display!!.display.flags}}")
+        val displayContext: Context = context.createDisplayContext(m_virtual_display!!.display)
         if(m_appName != null) {
             val app_split = m_appName!!.split('/')
             if(app_split.size == 2) {
@@ -83,7 +86,7 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
                 options.launchDisplayId =
                     m_virtual_display!!.display.displayId  // Here, fill in the DisplayId you want to specify.
                 try {
-                    context.startActivity(intent, options.toBundle())
+                    displayContext.startActivity(intent, options.toBundle())
                     m_appisrunning = true
                 }catch (e: ActivityNotFoundException){
                     Log.e(m_tag,"The APP ${m_appName} doesn't exist.")
@@ -91,7 +94,6 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
 
             }
         }
-
         // Get the InputManager class
         val inputManagerClass = Class.forName("android.hardware.input.InputManager")
         // Get the Method object for the injectInputEvent method
@@ -106,11 +108,12 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
             "setDisplayId",
             Int::class.java      // DisplayID
         )
-        m_inputManager = context.getSystemService(INPUT_SERVICE) as InputManager
+        m_inputManager = displayContext.getSystemService(INPUT_SERVICE) as InputManager
     }
 
     fun destroyed(){
         m_virtual_display?.release()
+        m_Surface?.release()
     }
 
     /**
@@ -332,12 +335,12 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
         return m_eglcontext
     }
 
-    override fun getSurfaceTexture(): cSurfaceTexture?{
+    override fun getSurfaceTexture(): cSurfaceTexture{
         return m_SurfaseTexture
     }
 
     fun getTextureID(): Int?{
-        return m_SurfaseTexture?.getTextureID()
+        return m_SurfaseTexture.getTextureID()
     }
 
     private class StaticVariable {
