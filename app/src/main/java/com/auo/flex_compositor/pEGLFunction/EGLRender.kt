@@ -29,16 +29,18 @@ class EGLRender {
                             var cropWidth: Int, var cropHeight: Int)
 
     data class Render_Parameters(val vertices : ArrayList<Float>, val textcoods : ArrayList<Float>,
-                                 var column : Int, var row : Int, var countOfTriangles: Int)
+                                 var column : Int, var row : Int, var countOfTriangles: Int, var isDeWarp: Boolean,
+                                var isUpdate: Boolean)
 
     private var index: Int = 0
 
     private var m_AUORenderCallback: AUORenderCallback? = null
-    private var mProgram: Int = 0
+    private var mProgram: Int = -1
+    private var m_vertexShader: Int = -1
+    private var m_fragmentShader: Int = -1
     private var m_context: Context? = null
     private var m_positionHandle: Int = 0
     private var m_texCoordHandle: Int = 0
-    private var mTextureID: Int  = -1
     private var mVBO: Int  = -1
     private var mEBO: Int  = -1
     private val mTextureSize : Texture_Size = Texture_Size(
@@ -49,14 +51,14 @@ class EGLRender {
 
 
     private val m_render_parameters : Render_Parameters = Render_Parameters(
-        ArrayList<Float>(), ArrayList<Float>(), 2, 2,2
+        ArrayList<Float>(), ArrayList<Float>(), 2, 2,2, false,
+        false
     )
 
 
     // Set up shaders and program (vertex shader and fragment shader)
-    constructor(context : Context, textureid : Int, dewarpParameters: deWarp_Parameters?) : super() {
+    constructor(context : Context, dewarpParameters: deWarp_Parameters?) : super() {
         m_context = context
-        mTextureID = textureid
         m_dewarpParameters = dewarpParameters
     }
 
@@ -65,9 +67,6 @@ class EGLRender {
         // Initialize OpenGL settings (e.g., set the background color)
         GLES20.glClearColor(0.0f, 0.0f, 0.0f, 1.0f) // Set background color to black
         GLES20.glEnable(GLES20.GL_DEPTH_TEST) // Enable depth testing
-        if(mTextureID  == -1){
-            mTextureID = createOESTextureObject()
-        }
         m_AUORenderCallback?.onSurfaceCreatedCallback()
         mProgram = createProgram(m_context!!.resources, "shader/vertex.glsl", "shader/fragment.glsl")
         val handles = activeHandle(mProgram, "vPosition","vCoordinate")
@@ -95,7 +94,11 @@ class EGLRender {
     }
 
     // Implement the onDrawFrame() method
-    fun onDrawFrame() {
+    fun onDrawFrame(textureID: Int) {
+        if(m_render_parameters.isUpdate){
+            updateTextureVBO(m_render_parameters, mTextureSize, mVBO)
+            m_render_parameters.isUpdate = false
+        }
         // Clear the screen with the background color
         GLES20.glUseProgram(mProgram)
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, mVBO)
@@ -103,7 +106,7 @@ class EGLRender {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         GLES20.glClearColor(0.0f, 0.0f, 0.0f, 1.0f) // Set background color to black
         //m_AUORenderCallback?.onDrawFrameCallback()
-        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, mTextureID)
+        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureID)
         // Your OpenGL rendering code goes here
         //Log.d(m_tag, "onDrawFrame")
         //GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
@@ -145,18 +148,18 @@ class EGLRender {
 //            String fragmentSource = AssetsUtils.read(CameraGlSurfaceShowActivity.this, "fragment_texture.glsl");
 //            int fragmentShader = loadShader(GLES20.GL_FRAGMENT_SHADER, fragmentSource);
 
-        val vertexShader: Int = loadShader(GLES20.GL_VERTEX_SHADER, vertexSrcCode!!)
-        val fragmentShader: Int = loadShader(GLES20.GL_FRAGMENT_SHADER, fragSrcCode!!)
+        m_vertexShader = loadShader(GLES20.GL_VERTEX_SHADER, vertexSrcCode!!)
+        m_fragmentShader = loadShader(GLES20.GL_FRAGMENT_SHADER, fragSrcCode!!)
 
         // 创建空的OpenGL ES程序
         var program = GLES20.glCreateProgram()
 
 
         // 添加顶点着色器到程序中
-        GLES20.glAttachShader(program, vertexShader)
+        GLES20.glAttachShader(program, m_vertexShader)
 
         // 添加片段着色器到程序中
-        GLES20.glAttachShader(program, fragmentShader)
+        GLES20.glAttachShader(program, m_fragmentShader)
 
         // 创建OpenGL ES程序可执行文件
         GLES20.glLinkProgram(program)
@@ -204,17 +207,14 @@ class EGLRender {
         return handles
     }
 
-    fun getTexture() : Int {
-        return mTextureID
-    }
-
-    fun setTextureSize(textureSize : Texture_Size){
+    fun setTextureSize(textureSize : Texture_Size, update: Boolean = false){
         mTextureSize.width = textureSize.width
         mTextureSize.height = textureSize.height
         mTextureSize.offsetX = textureSize.offsetX
         mTextureSize.offsetY = textureSize.offsetY
         mTextureSize.cropWidth = textureSize.cropWidth
         mTextureSize.cropHeight = textureSize.cropHeight
+        m_render_parameters.isUpdate = update
     }
 
     fun setTextureSize(width: Int, height: Int){
@@ -230,6 +230,7 @@ class EGLRender {
     }
 
     private fun setNormalMode(renderParameters: Render_Parameters, textureSize : Texture_Size){
+        renderParameters.isDeWarp = false
         renderParameters.column = 2
         renderParameters.row = 2
         renderParameters.countOfTriangles = (renderParameters.column - 1) * (renderParameters.row - 1) * 2 * 3
@@ -291,7 +292,52 @@ class EGLRender {
                 textcoods.add(texture_x);textcoods.add(texture_y) // x;y
             }
         }else return false
+        renderParameters.isDeWarp = true
         return true
+    }
+
+    private fun updateTextureVBO(renderParameters: Render_Parameters, textureSize : Texture_Size, vbo: Int){
+        val left = textureSize.offsetX.toFloat() / textureSize.width.toFloat()
+        val top = textureSize.offsetY.toFloat() / textureSize.height.toFloat()
+        val right = (textureSize.offsetX + textureSize.cropWidth).toFloat() / textureSize.width.toFloat()
+        val bottom = (textureSize.offsetY + textureSize.cropHeight).toFloat() / textureSize.height.toFloat()
+        val textcoods = renderParameters.textcoods
+        if(renderParameters.isDeWarp){
+            if(textcoods.size == (renderParameters.column * renderParameters.row) * 2) {
+                for (i in 0 until (renderParameters.column * renderParameters.row)) {
+                    val texture_x =
+                        1.0f * (i % renderParameters.column).toFloat() / (renderParameters.column - 1).toFloat() * (right - left) + left
+                    val texture_y =
+                        1.0f * (i / renderParameters.column).toFloat() / (renderParameters.row - 1).toFloat() * (bottom - top) + top
+
+                    textcoods[i*2] = (texture_x);textcoods[i*2+1] = (texture_y) // x;y
+                }
+            }
+            else{
+                return
+            }
+        }
+        else
+        {
+            if(textcoods.size == 8) {
+                textcoods[0] = (left);textcoods[1] = (top) //x;y
+                textcoods[2] = (right);textcoods[3] = (top)
+                textcoods[4] = (left);textcoods[5] = (bottom)
+                textcoods[6] = (right);textcoods[7] = (bottom)
+            }
+            else{
+                return
+            }
+        }
+
+        val textcoodBuffer = ByteBuffer.allocateDirect(textcoods.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
+        textcoodBuffer.put(textcoods.toFloatArray())
+        textcoodBuffer.position(0)
+
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vbo)
+        var offset = renderParameters.vertices.size  * 4
+        GLES20.glBufferSubData(GLES20.GL_ARRAY_BUFFER, offset, textcoods.size * 4, textcoodBuffer)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
     }
 
     private fun setDeWarpMode(resources: Resources, dewarp_file: String, renderParameters: Render_Parameters,
@@ -364,7 +410,7 @@ class EGLRender {
             }else return false
         }
         else return false
-
+        renderParameters.isDeWarp = true
         return true
 
 //        for (i in 0 until nodeList.length) {
@@ -479,5 +525,15 @@ class EGLRender {
         GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, 0)
 
         return ebo[0]
+    }
+
+    fun release(){
+        var array = intArrayOf(mVBO)
+        GLES20.glDeleteBuffers(1, array, 0)
+        array = intArrayOf(mEBO)
+        GLES20.glDeleteBuffers(1, array, 0)
+        GLES20.glDeleteProgram(mProgram)
+        GLES20.glDeleteShader(m_vertexShader)
+        GLES20.glDeleteShader(m_fragmentShader)
     }
 }

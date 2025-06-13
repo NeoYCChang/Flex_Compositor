@@ -14,6 +14,7 @@ import android.view.Surface
 import android.view.SurfaceControl
 import com.auo.flex_compositor.pEGLFunction.EGLHelper
 import com.auo.flex_compositor.pEGLFunction.EGLRender
+import com.auo.flex_compositor.pEGLFunction.StaticVariable
 import com.auo.flex_compositor.pInterface.SerializablePointerCoords
 import com.auo.flex_compositor.pInterface.SerializablePointerProperties
 import com.auo.flex_compositor.pInterface.cMotionEvent
@@ -240,12 +241,16 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
         if (mMediaCodec != null) {
             mMediaCodec!!.stop()
             mMediaCodec!!.release()
+            mMediaCodec = null
         }
         if (m_webSocketClient != null) {
-            m_webSocketClient!!.close()
+            Log.d(m_tag, "stopDecodee")
+            m_webSocketClient!!.close(0)
+            m_webSocketClient = null
         }
         m_codecThread?.quitSafely()
         m_Surface?.release()
+        m_Surface = null
     }
 
     override fun injectMotionEvent(cmotionEvent: cMotionEvent) {
@@ -273,21 +278,4 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
         return m_SurfaseTexture
     }
 
-    private class StaticVariable {
-        companion object {
-            // Static-like function
-            private val m_surfaceControl = SurfaceControl.Builder()
-                .setName("AUOSurface")
-                .setBufferSize(20, 20)
-                .build()
-            private val m_surface = Surface(m_surfaceControl)
-            private val m_eglHelper: EGLHelper? = EGLHelper()
-            var public_eglcontext: EGLContext? = null
-
-            init {
-                m_eglHelper?.initEgl(m_surface, null)
-                public_eglcontext = m_eglHelper!!.getmEglContext()
-            }
-        }
-    }
 }

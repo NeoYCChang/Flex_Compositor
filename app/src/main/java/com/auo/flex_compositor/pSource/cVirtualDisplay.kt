@@ -20,6 +20,7 @@ import android.view.Surface
 import android.view.SurfaceControl
 import com.auo.flex_compositor.pEGLFunction.EGLHelper
 import com.auo.flex_compositor.pEGLFunction.EGLRender
+import com.auo.flex_compositor.pEGLFunction.StaticVariable
 import com.auo.flex_compositor.pInterface.SerializablePointerCoords
 import com.auo.flex_compositor.pInterface.SerializablePointerProperties
 import com.auo.flex_compositor.pInterface.cMotionEvent
@@ -67,6 +68,7 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
             size.height,
             240,
             m_Surface,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_SECURE or
             0x100 or //virtual displays will always destroy their content on removal
             0x400  //Indicates that the display is trusted
         )
@@ -343,21 +345,4 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
         return m_SurfaseTexture.getTextureID()
     }
 
-    private class StaticVariable {
-        companion object {
-            // Static-like function
-            private val m_surfaceControl = SurfaceControl.Builder()
-                .setName("AUOSurface")
-                .setBufferSize(20, 20)
-                .build()
-            private val m_surface = Surface(m_surfaceControl)
-            private val m_eglHelper: EGLHelper? = EGLHelper()
-            var public_eglcontext: EGLContext? = null
-
-            init {
-                m_eglHelper?.initEgl(m_surface, null)
-                public_eglcontext = m_eglHelper!!.getmEglContext()
-            }
-        }
-    }
 }

@@ -4,6 +4,7 @@ import android.app.Service.DISPLAY_SERVICE
 import android.app.Service.WINDOW_SERVICE
 import android.content.Context
 import android.graphics.PixelFormat
+import android.graphics.Point
 import android.hardware.display.DisplayManager
 import android.os.Build
 import android.os.Handler
@@ -17,6 +18,7 @@ import android.view.MotionEvent.PointerProperties
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.view.View
 import android.view.ViewGroup.LayoutParams
 import android.view.WindowManager
 import java.lang.ref.WeakReference
@@ -28,6 +30,7 @@ import com.auo.flex_compositor.pEGLFunction.EGLHelper
 import com.auo.flex_compositor.pEGLFunction.EGLRender
 import com.auo.flex_compositor.pEGLFunction.EGLRender.Texture_Size
 import com.auo.flex_compositor.pEGLFunction.EGLThread
+import com.auo.flex_compositor.pFilter.cViewSwitch
 import com.auo.flex_compositor.pInterface.SerializablePointerCoords
 import com.auo.flex_compositor.pInterface.SerializablePointerProperties
 import com.auo.flex_compositor.pInterface.cMotionEvent
@@ -68,13 +71,11 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
         960, 540, 0, 0,
         960,540
     )
-    private val m_cropTextureArea = cropTextureArea
-    private val m_touchMapping = touchMapping
+    private var m_cropTextureArea = cropTextureArea
+    private var m_touchMapping = touchMapping
     private val m_posSize: vPos_Size =  posSize
     private var m_window_manager: WindowManager? = null
     private var m_layoutParmas: WindowManager.LayoutParams? = null
-    // EGL context
-    private var eglContext: EGLContext? = m_source?.getEGLContext()
 
     // Detect Long Press
     private val m_longPressHandler = Handler(Looper.getMainLooper())
@@ -84,11 +85,12 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
     init {
         holder.addCallback(this)
         val display_manager = context.getSystemService(DISPLAY_SERVICE) as DisplayManager
+
         val display: Display? = display_manager.getDisplay(m_displayID)
         if (display !== null) {
             Log.d(m_tag, "display flag: ${display.flags}")
             // flag = 4 : Private Display
-            if(display.flags != 136) {
+            if(display.flags != 132) {
                 m_layoutParmas = newLayoutParams(m_posSize)
                 val displayContext: Context = context.createDisplayContext(display)
                 m_window_manager = displayContext.getSystemService(WINDOW_SERVICE) as WindowManager
@@ -119,21 +121,23 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
     }
 
     fun show(){
-        if(m_window_manager !== null && m_layoutParmas !== null && !m_isDestroyed) {
-            m_layoutParmas!!.x = m_posSize.x
-            m_layoutParmas!!.y = m_posSize.y
-
-            m_window_manager?.updateViewLayout(this, m_layoutParmas)
-        }
+//        if(m_window_manager !== null && m_layoutParmas !== null && !m_isDestroyed) {
+//            m_layoutParmas!!.x = m_posSize.x
+//            m_layoutParmas!!.y = m_posSize.y
+//
+//            m_window_manager?.updateViewLayout(this, m_layoutParmas)
+//        }
+        this.visibility = View.VISIBLE
     }
 
     fun hide(){
-        if(m_window_manager !== null && m_layoutParmas !== null && !m_isDestroyed) {
-            m_layoutParmas?.x = -m_posSize.width
-            m_layoutParmas?.y = -m_posSize.height
-
-            m_window_manager?.updateViewLayout(this, m_layoutParmas)
-        }
+//        if(m_window_manager !== null && m_layoutParmas !== null && !m_isDestroyed) {
+//            m_layoutParmas?.x = -m_posSize.width
+//            m_layoutParmas?.y = -m_posSize.height
+//
+//            m_window_manager?.updateViewLayout(this, m_layoutParmas)
+//        }
+        this.visibility = View.GONE
     }
 
 
@@ -171,30 +175,23 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
     }
 
     override fun getEGLContext() : EGLContext?{
-        return eglContext
+        return m_source.getEGLContext()
     }
 
     override fun getEGLRender() : EGLRender?{
         return m_EGLRender
     }
 
-    fun setSurfaceAndEglContext(surface: Surface?, eglContext: EGLContext?) {
-        this.m_surface = surface
-        this.eglContext = eglContext
-    }
+//    fun setSurfaceAndEglContext(surface: Surface?, eglContext: EGLContext?) {
+//        this.m_surface = surface
+//        this.eglContext = eglContext
+//    }
 
     fun setTextureCrop(cropArea: vCropTextureArea){
         mTextureSize.offsetX = cropArea.offsetX
         mTextureSize.offsetY = cropArea.offsetY
         mTextureSize.cropWidth  = cropArea.width
         mTextureSize.cropHeight = cropArea.height
-    }
-
-    fun requestRender() {
-        if (eglThread != null) {
-            //Log.d(m_tag,"requestRender")
-            eglThread!!.requestRender()
-        }
     }
 
 
@@ -214,11 +211,17 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
             Log.d(m_tag, "dewarp ${m_dewarpParameters}")
             m_EGLRender = EGLRender(
                 m_context,
-                m_source.getSurfaceTexture().getTextureID(),
                 m_dewarpParameters
             )
 
-            val isMainEGLThread = m_source.getSurfaceTexture().setListener { this.requestRender()}
+            when (m_source) {
+                is cViewSwitch -> {
+                    val viewSwitch = m_source as cViewSwitch
+                    m_cropTextureArea = viewSwitch.getCrop_texture()
+                    m_touchMapping = viewSwitch.getTouchMapping()
+                }
+            }
+
             setTextureCrop(m_cropTextureArea)
             mTextureSize.width = m_source.getSurfaceTexture().getWidth()
             mTextureSize.height = m_source.getSurfaceTexture().getHeight()
@@ -226,8 +229,25 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
             m_EGLRender!!.setTextureSize(mTextureSize)
 
 
-            eglThread = EGLThread(WeakReference(this), isMainEGLThread)
+            eglThread = EGLThread(WeakReference(this))
             eglThread!!.start()
+
+            when (m_source) {
+                is cViewSwitch -> {
+                    val handler: () -> Unit = {
+                        val viewSwitch = m_source as cViewSwitch
+                        m_cropTextureArea = viewSwitch.getCrop_texture()
+                        m_touchMapping = viewSwitch.getTouchMapping()
+                        setTextureCrop(m_cropTextureArea)
+                        mTextureSize.width = m_source.getSurfaceTexture().getWidth()
+                        mTextureSize.height = m_source.getSurfaceTexture().getHeight()
+
+                        m_EGLRender!!.setTextureSize(mTextureSize, true)
+                    }
+                    val viewSwitch = m_source as cViewSwitch
+                    viewSwitch.triggerSubscribe(handler)
+                }
+            }
         }
     }
 
@@ -239,13 +259,13 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         eglThread = null
         m_surface = null
-        eglContext = null
     }
 
     fun destroyed(){
         if(!m_isDestroyed) {
             eglThread?.onDestory()
             eglThread?.join()
+            m_EGLRender?.release()
             m_EGLRender = null
             m_window_manager?.removeViewImmediate(this)
             //m_window_manager?.removeView(this)
@@ -267,8 +287,8 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
             }
             val pointerCoords = Array(pointerCount) { i ->
                 SerializablePointerCoords(
-                    x = motionEvent.getX(i) * (m_touchMapping.width - 1) / (this.width - 1) + m_touchMapping.offsetX,
-                    y = motionEvent.getY(i) * (m_touchMapping.height - 1) / (this.height - 1) + m_touchMapping.offsetY,
+                    x = motionEvent.getX(i) * (m_touchMapping!!.width - 1) / (this.width - 1) + m_touchMapping!!.offsetX,
+                    y = motionEvent.getY(i) * (m_touchMapping!!.height - 1) / (this.height - 1) + m_touchMapping!!.offsetY,
                     pressure = motionEvent.getPressure(i),
                     size = motionEvent.getSize(i)
                 )

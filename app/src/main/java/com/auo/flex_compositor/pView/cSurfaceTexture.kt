@@ -4,6 +4,7 @@ import android.graphics.SurfaceTexture
 import android.util.Log
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.locks.ReentrantReadWriteLock
 
 class cSurfaceTexture(textureId: Int) : SurfaceTexture(textureId) {
 
@@ -12,12 +13,11 @@ class cSurfaceTexture(textureId: Int) : SurfaceTexture(textureId) {
         // Static-like function
     }
     // A list to hold all event listeners
-    private var m_listener: (() -> Unit)? = null
     private val m_tag = "AUOSurfaceTexture"
     private var m_width : Int = 960
     private var m_height : Int = 960
     private var m_textureId: Int = textureId
-
+    private val `textureObject`: Any = Any()
 
     init {
         setOnFrameAvailableListener(object : SurfaceTexture.OnFrameAvailableListener {
@@ -25,28 +25,11 @@ class cSurfaceTexture(textureId: Int) : SurfaceTexture(textureId) {
                 val current = LocalDateTime.now()
                 val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss:SSS")
                 val formatted = current.format(formatter)
-                Log.d(m_tag, "${formatted}")
-                triggerEvent();
+                //Log.d(m_tag, "${formatted}")
+                updateTexImage(surfaceTexture)
                 //Log.d("MainActivity", "Frame available: processing frame")
             }
         })
-    }
-
-
-    // Add a listener
-    fun setListener(listener: () -> Unit): Boolean {
-        if(m_listener == null) {
-            m_listener = listener
-            return true
-        }
-        Log.d(m_tag, "listener has already been set.")
-        return false
-    }
-
-    // Trigger the event (calls all listeners)
-    fun triggerEvent() {
-        //Log.d(m_tag,"triggerEvent")
-        m_listener?.let { it() }
     }
 
     override fun setDefaultBufferSize(width: Int, height: Int) {
@@ -65,6 +48,39 @@ class cSurfaceTexture(textureId: Int) : SurfaceTexture(textureId) {
 
     fun getTextureID(): Int{
         return m_textureId
+    }
+
+    private fun updateTexImage(surfaceTexture: SurfaceTexture?){
+        if(surfaceTexture != null) {
+            synchronized(`textureObject`) {
+                try {
+                    surfaceTexture!!.updateTexImage()
+                    (`textureObject` as Object).notifyAll()
+                } catch (e: InterruptedException) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
+
+    fun switcherChange(){
+        synchronized(`textureObject`) {
+            try {
+                (`textureObject` as Object).notifyAll()
+            } catch (e: InterruptedException) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun waitUpdateTexImage(){
+        synchronized(`textureObject`) {
+            try {
+                (`textureObject` as Object).wait(1000)
+            } catch (e: InterruptedException) {
+                e.printStackTrace()
+            }
+        }
     }
 
 }

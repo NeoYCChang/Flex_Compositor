@@ -11,27 +11,20 @@ import javax.microedition.khronos.egl.EGLContext
 import kotlin.concurrent.read
 import kotlin.concurrent.write
 
-class EGLThread(private var myRenderingTools: WeakReference<iEssentialRenderingTools>, private var isMainEGLthread: Boolean = false) :
+class EGLThread(private var myRenderingTools: WeakReference<iEssentialRenderingTools>) :
     Thread() {
     private var eglHelper: EGLHelper? = null
     private var isExit = false
     private var isCreate: Boolean = true
     private var m_sync_count: Int =0
-    private var m_hasRenderRequest: Boolean = true
     private val m_tag = "EGLThread"
 
-    companion object {
-        // Static-like function
-        private val  m_ReadWriteLock: ReentrantReadWriteLock = ReentrantReadWriteLock()
-        private val `subObject`: Any = Any()
-    }
 
-    // Used to control manual refresh
-    private val `mainObject`: Any = Any()
     var width: Int = 0
     var height: Int = 0
     override fun run() {
         super.run()
+
         isExit = false
         eglHelper = EGLHelper()
         if(myRenderingTools.get()!!.getSurface() != null && myRenderingTools.get()!!.getEGLContext() != null) {
@@ -52,45 +45,9 @@ class EGLThread(private var myRenderingTools: WeakReference<iEssentialRenderingT
                 release()
                 break
             }
-            if(isMainEGLthread){
-                synchronized(`mainObject`) {
-                    if (!m_hasRenderRequest) {
-                        try {
-                            (`mainObject` as Object).wait(1024)
-                        } catch (e: InterruptedException) {
-                            e.printStackTrace()
-                        }
-                    }
-                    m_hasRenderRequest = false // reset after being notified
-                    onUpdateTexure()
-                    requestSubRender()
-                }
-            }
-            else{
-                synchronized(`subObject`) {
-                    if (!m_hasRenderRequest) {
-                        try {
-                            (`subObject` as Object).wait()
-                        } catch (e: InterruptedException) {
-                            e.printStackTrace()
-                        }
-                    }
-                    m_hasRenderRequest = false // reset after being notified
-                }
-            }
 
-            if(isMainEGLthread) {
-                val current = LocalDateTime.now()
-                val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss:SSS")
-                val formatted = current.format(formatter)
-                Log.d("thread", "main ${formatted}")
-            }
-            else{
-                val current = LocalDateTime.now()
-                val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss:SSS")
-                val formatted = current.format(formatter)
-                Log.d("thread", "sub ${formatted}")
-            }
+            waitUpdateTexImage()
+
             //sleep(33,670000)
             onChange(width, height)
             if(myRenderingTools.get()!!.Sync(m_sync_count)){
@@ -98,6 +55,10 @@ class EGLThread(private var myRenderingTools: WeakReference<iEssentialRenderingT
             }
             onDraw()
             updateSyncCount()
+            val current = LocalDateTime.now()
+            val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss:SSS")
+            val formatted = current.format(formatter)
+            //Log.d("thread", "render ${formatted}")
         }
     }
 
@@ -123,13 +84,10 @@ class EGLThread(private var myRenderingTools: WeakReference<iEssentialRenderingT
         }
     }
 
-
-    private fun onUpdateTexure() {
-        m_ReadWriteLock.write {
-            if(myRenderingTools.get()!!.getSource().getSurfaceTexture() != null) {
-                if(!myRenderingTools.get()!!.getSource().getSurfaceTexture()!!.isReleased) {
-                    myRenderingTools.get()!!.getSource().getSurfaceTexture()?.updateTexImage()
-                }
+    private fun waitUpdateTexImage(){
+        if(myRenderingTools.get()!!.getSource().getSurfaceTexture() != null) {
+            if(!myRenderingTools.get()!!.getSource().getSurfaceTexture()!!.isReleased) {
+                myRenderingTools.get()!!.getSource().getSurfaceTexture()!!.waitUpdateTexImage()
             }
         }
     }
@@ -139,10 +97,12 @@ class EGLThread(private var myRenderingTools: WeakReference<iEssentialRenderingT
      */
     private fun onDraw() {
         if (myRenderingTools.get()!!.getEGLRender() != null && eglHelper != null) {
-            m_ReadWriteLock.read {
-                myRenderingTools.get()!!.getEGLRender()!!.onDrawFrame()
-                eglHelper?.swapBuffers()
+            if(myRenderingTools.get()!!.getSource().getSurfaceTexture() != null) {
+                if(!myRenderingTools.get()!!.getSource().getSurfaceTexture()!!.isReleased) {
+                    myRenderingTools.get()!!.getEGLRender()!!.onDrawFrame(myRenderingTools.get()!!.getSource().getSurfaceTexture()!!.getTextureID())
+                }
             }
+            eglHelper?.swapBuffers()
         }
     }
 
@@ -159,33 +119,8 @@ class EGLThread(private var myRenderingTools: WeakReference<iEssentialRenderingT
         }
     }
 
-    /**
-     * Manual refresh
-     * Release the blocking wait in the thread
-     */
-    internal fun requestRender() {
-        synchronized(`mainObject`) {
-            m_hasRenderRequest = true
-            (`mainObject` as Object).notifyAll()
-        }
-    }
-
-    internal fun requestSubRender() {
-        synchronized(`subObject`) {
-            (`subObject` as Object).notifyAll()
-        }
-    }
-
     fun onDestory() {
         isExit = true
-        if(isMainEGLthread){
-            Log.d(m_tag, "Destory main EGLthread")
-            requestRender()
-        }
-        else{
-            Log.d(m_tag, "Destory Sub EGLthread")
-            requestSubRender()
-        }
     }
 
     private fun release() {

@@ -47,9 +47,9 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
     private var eglContext: EGLContext? = m_source?.getEGLContext()
     private var m_EGLRender: EGLRender?  = null
     private var m_surface: Surface? = null
-    private val m_cropTextureArea = cropTextureArea
+    private var m_cropTextureArea = cropTextureArea
     private var m_dewarpParameters: deWarp_Parameters? = dewarpParameters
-    private val m_touchMapping = touchMapping
+    private var m_touchMapping = touchMapping
     private val m_vsize: vSize =  size
     private val mTextureSize : Texture_Size = Texture_Size(
         960, 540, 0, 0,
@@ -66,7 +66,7 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
     private var mMediaCodec: MediaCodec? = null
     private var m_playing = false
 
-    // 记录vps pps sps
+    // record vps pps sps
     private var m_vps_pps_sps: ByteArray? = null
 
     // websocket server
@@ -95,9 +95,16 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
 
         m_EGLRender = EGLRender(
             m_context,
-            m_source.getSurfaceTexture().getTextureID(),
             m_dewarpParameters
         )
+
+        when (m_source) {
+            is cViewSwitch -> {
+                val viewSwitch = m_source as cViewSwitch
+                m_cropTextureArea = viewSwitch.getCrop_texture()
+                m_touchMapping = viewSwitch.getTouchMapping()
+            }
+        }
 
         mTextureSize.offsetX = m_cropTextureArea.offsetX
         mTextureSize.offsetY = m_cropTextureArea.offsetY
@@ -108,11 +115,30 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
 
         m_EGLRender!!.setTextureSize(mTextureSize)
 
-        val isMainEGLThread = m_source.getSurfaceTexture().setListener { this.requestRender()}
-        eglThread = EGLThread(WeakReference(this), isMainEGLThread)
+        eglThread = EGLThread(WeakReference(this))
         eglThread!!.width = m_vsize.width
         eglThread!!.height = m_vsize.height
         eglThread!!.start() // need to run it after startEncode()
+
+        when (m_source) {
+            is cViewSwitch -> {
+                val handler: () -> Unit = {
+                    Log.d(m_tag,"trigger")
+                    val viewSwitch = m_source as cViewSwitch
+                    m_cropTextureArea = viewSwitch.getCrop_texture()
+                    m_touchMapping = viewSwitch.getTouchMapping()
+                    mTextureSize.offsetX = m_cropTextureArea.offsetX
+                    mTextureSize.offsetY = m_cropTextureArea.offsetY
+                    mTextureSize.cropWidth  = m_cropTextureArea.width
+                    mTextureSize.cropHeight = m_cropTextureArea.height
+                    mTextureSize.width = m_source.getSurfaceTexture().getWidth()
+                    mTextureSize.height = m_source.getSurfaceTexture().getHeight()
+                    m_EGLRender!!.setTextureSize(mTextureSize, true)
+                }
+                val viewSwitch = m_source as cViewSwitch
+                viewSwitch.triggerSubscribe(handler)
+            }
+        }
     }
 
     fun getTextureSize() : Texture_Size{
@@ -252,14 +278,17 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
         if (mMediaCodec != null) {
             mMediaCodec!!.stop()
             mMediaCodec!!.release()
+            mMediaCodec = null
         }
         eglThread?.onDestory()
         eglThread?.join()
         eglThread = null
         m_webSocketServer?.close()
         m_webSocketServer?.stop()
+        m_webSocketServer = null
         m_codecThread?.quitSafely()
         m_surface?.release()
+        m_surface = null
     }
 
     private fun onTouchEvent(data: ByteArray) {
@@ -275,8 +304,8 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
                         for (i in 0 until pointerCount) {
                             val x = event.pointerCoords[i].x
                             val y = event.pointerCoords[i].y
-                            event.pointerCoords[i].x = x * (m_touchMapping.width - 1) / (event.decoder_width - 1) + m_touchMapping.offsetX
-                            event.pointerCoords[i].y = y * (m_touchMapping.height - 1) / (event.decoder_height - 1) + m_touchMapping.offsetY
+                            event.pointerCoords[i].x = x * (m_touchMapping!!.width - 1) / (event.decoder_width - 1) + m_touchMapping!!.offsetX
+                            event.pointerCoords[i].y = y * (m_touchMapping!!.height - 1) / (event.decoder_height - 1) + m_touchMapping!!.offsetY
                         }
 
                         touchmapper.injectMotionEvent(event)
@@ -364,10 +393,4 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
         }
     }
 
-    fun requestRender() {
-        if (eglThread != null) {
-            //Log.d(m_tag,"requestRender")
-            eglThread!!.requestRender()
-        }
-    }
 }

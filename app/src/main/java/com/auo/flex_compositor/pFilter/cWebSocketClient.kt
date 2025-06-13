@@ -16,6 +16,7 @@ class cWebSocketClient (private val mSocketCallback: SocketCallback?, serverUri:
     private val retryDelay: Long = 6000L // milliseconds
     private var retryCount = 0
     private val handler = Handler(Looper.getMainLooper())
+    private var m_isClose = false
     override fun onOpen(serverHandshake: ServerHandshake) {
         Log.d(m_tag, "onOpen")
         retryCount = 0 // reset retry count on successful connection
@@ -28,9 +29,15 @@ class cWebSocketClient (private val mSocketCallback: SocketCallback?, serverUri:
         mSocketCallback?.onReceiveData(buf)
     }
 
+    override fun close(code: Int) {
+        m_isClose = true
+        super.close(code)
+    }
+
     override fun onClose(code: Int, reason: String, remote: Boolean) {
-        Log.d(m_tag, "onClose =$reason")
-        attemptReconnect()
+        if(!m_isClose){
+            attemptReconnect()
+        }
     }
 
     override fun onError(ex: Exception) {

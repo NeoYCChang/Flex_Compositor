@@ -2,6 +2,7 @@ package com.auo.flex_compositor.pEGLFunction
 
 import android.opengl.EGL14
 import android.view.Surface
+import android.view.SurfaceControl
 import javax.microedition.khronos.egl.EGL10
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.egl.EGLContext
@@ -126,6 +127,24 @@ class EGLHelper {
             mEgl!!.eglTerminate(mEglDisplay)
             mEglDisplay = null
             mEgl = null
+        }
+    }
+}
+
+class StaticVariable {
+    companion object {
+        // Static-like function
+        private val m_surfaceControl = SurfaceControl.Builder()
+            .setName("AUOSurface")
+            .setBufferSize(20, 20)
+            .build()
+        private val m_surface = Surface(m_surfaceControl)
+        private val m_eglHelper: EGLHelper? = EGLHelper()
+        var public_eglcontext: EGLContext? = null
+
+        init {
+            m_eglHelper?.initEgl(m_surface, null)
+            public_eglcontext = m_eglHelper!!.getmEglContext()
         }
     }
 }

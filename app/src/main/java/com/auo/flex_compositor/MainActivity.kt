@@ -85,6 +85,7 @@ class MainActivity : ComponentActivity() {
 
         window.insetsController?.hide(WindowInsets.Type.systemBars())
         window.insetsController?.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        // moveTaskToBack(true)
     }
 
     override fun onTouchEvent(event: MotionEvent?): Boolean {
