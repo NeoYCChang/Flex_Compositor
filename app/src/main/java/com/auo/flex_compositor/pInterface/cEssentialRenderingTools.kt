@@ -2,7 +2,7 @@ package com.auo.flex_compositor.pInterface
 
 import android.view.Surface
 import com.auo.flex_compositor.pEGLFunction.EGLRender
-import javax.microedition.khronos.egl.EGLContext
+import android.opengl.EGLContext
 
 data class deWarp_Parameters(val vertices : ArrayList<Float>, val textcoods : ArrayList<Float>,
                              var column : Int, var row : Int)

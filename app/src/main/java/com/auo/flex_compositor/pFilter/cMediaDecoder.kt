@@ -7,16 +7,9 @@ import android.media.MediaFormat
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
-import android.view.MotionEvent
-import android.view.MotionEvent.PointerCoords
-import android.view.MotionEvent.PointerProperties
 import android.view.Surface
-import android.view.SurfaceControl
-import com.auo.flex_compositor.pEGLFunction.EGLHelper
 import com.auo.flex_compositor.pEGLFunction.EGLRender
 import com.auo.flex_compositor.pEGLFunction.StaticVariable
-import com.auo.flex_compositor.pInterface.SerializablePointerCoords
-import com.auo.flex_compositor.pInterface.SerializablePointerProperties
 import com.auo.flex_compositor.pInterface.cMotionEvent
 import com.auo.flex_compositor.pInterface.cParseH264Codec
 import com.auo.flex_compositor.pInterface.cParseH265Codec
@@ -29,27 +22,27 @@ import com.auo.flex_compositor.pView.cSurfaceTexture
 import kotlinx.serialization.json.Json
 import java.io.IOException
 import java.net.URI
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
 import java.util.concurrent.locks.ReentrantLock
-import javax.microedition.khronos.egl.EGLContext
+import android.opengl.EGLContext
 import kotlin.concurrent.withLock
 
 class cMediaDecoder(context: Context, override val e_name: String, override val e_id: Int, size: vSize, serverip: String, serverport: String
                     , codecType: eCodecType = eCodecType.H264): iSurfaceSource {
     private var mMediaCodec: MediaCodec? = null  // MediaCodec object for decoding
     private val DECODE_TIME_OUT: Long = 10000  // Timeout for decoding (10 seconds)
-    private val SCREEN_FRAME_RATE = 60  // Frame rate for the video
+    private val SCREEN_FRAME_RATE = 30  // Frame rate for the video
     private val SCREEN_FRAME_INTERVAL = 1  // Interval for I-frames (default is 1)
     private val m_tag = "cMediaDecoder"  // Tag for logging
     private var m_isGetVPS: Boolean = false  // Flag to check if VPS (Video Parameter Set) is received
     private val m_codecType: eCodecType = codecType
     private var m_parseCodec: iParseCodec? = null
+    private val m_renderTriggered = mutableListOf<(cSurfaceTexture) -> Unit>()
 
     private val m_eglcontext: EGLContext? = StaticVariable.public_eglcontext
-    private lateinit var m_SurfaseTexture: cSurfaceTexture
+    private lateinit var m_SurfaceTexture: cSurfaceTexture
     private var m_Surface: Surface? = null
     private var m_size = size
+    private var m_playing = true
 
     // websocket client
     private val m_serverip  = serverip
@@ -87,13 +80,13 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
         val codecs = mediaCodecList.codecInfos
 
         for (codecInfo in codecs) {
-            if (codecInfo.isEncoder) { // 跳过编码器，只关注解码器
+            if (!codecInfo.isEncoder) { // 跳过编码器，只关注解码器
                 codecInfo.name
                 val supportedTypes = codecInfo.supportedTypes
                 for (type in supportedTypes) {
-                    if (codecInfo.isHardwareAccelerated) {
+                    //if (codecInfo.isHardwareAccelerated) {
                         availableDecoders.add(codecInfo.name)
-                    }
+                   // }
                 }
             }
         }
@@ -109,11 +102,16 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
 //        }
         try {
             val textureid: Int = EGLRender.createOESTextureObject()
-            m_SurfaseTexture = cSurfaceTexture(textureid)
-            m_SurfaseTexture?.setDefaultBufferSize(m_size.width, m_size.height)
-            m_Surface = Surface(m_SurfaseTexture)
+            if (!::m_SurfaceTexture.isInitialized) {
+                m_SurfaceTexture = cSurfaceTexture(textureid)
+                m_SurfaceTexture.setTriggerRender(::onTriggerRenderCallback)
+                m_SurfaceTexture?.setDefaultBufferSize(m_size.width, m_size.height)
+                m_Surface = Surface(m_SurfaceTexture)
+            }
+
 
             m_isGetVPS = false
+            m_inputIndexDeque.clear()
             // config MediaCodec
             //mMediaCodec = MediaCodec.createByCodecName("c2.android.hevc.decoder")
             var mimetype: String = MediaFormat.MIMETYPE_VIDEO_HEVC
@@ -130,6 +128,7 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
                 }
             }
             mMediaCodec = MediaCodec.createDecoderByType(mimetype)
+
             val mediaFormat =
                 MediaFormat.createVideoFormat(
                     mimetype,
@@ -140,7 +139,9 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
             mediaFormat.setInteger(MediaFormat.KEY_FRAME_RATE, SCREEN_FRAME_RATE)
             mediaFormat.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, SCREEN_FRAME_INTERVAL)
             //mediaFormat.setInteger(MediaFormat.KEY_COLOR_STANDARD, MediaFormat.COLOR_STANDARD_BT2020);
-            m_codecHandle = startThread(m_codecThread)
+            if(m_codecHandle == null) {
+                m_codecHandle = startThread(m_codecThread)
+            }
 
             mMediaCodec?.setCallback(object : MediaCodec.Callback() {
                 override fun onInputBufferAvailable(codec: MediaCodec, index: Int) {
@@ -152,12 +153,23 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
                 }
 
                 override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
-                    Log.d(m_tag, "Encoder output format changed: $format")
+                    Log.d(m_tag, "Decoder output format changed: $format")
                 }
 
                 override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
-                    Log.e(m_tag, "Encoder error: ${e.message}")
-                    stopDecode()
+                    Log.e(m_tag, "Decoder error: ${e.message}")
+                    try {
+                        codec.stop()
+                    } catch (e: IllegalStateException) {
+                        Log.w(m_tag, "MediaCodec stop() ERROR：${e.message}")
+                    }
+
+                    try {
+                        codec.release()
+                    } catch (e: IllegalStateException) {
+                        Log.w(m_tag, "MediaCodec release() ERROR：${e.message}")
+                    }
+                    //reStart()
                 }
             },  m_codecHandle)
 
@@ -171,6 +183,7 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
     private fun decodeData(data: ByteArray) {
         // If VPS has not been received yet, check for VPS in the data
         if(!m_isGetVPS){
+            m_dataDeque.clear()
             if(data.size < 5) return
             var type = eBufferType.BUFFER_NULL
             if(m_parseCodec != null) {
@@ -190,7 +203,7 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
 
     private fun tryToDecodeData(data: ByteArray){
         m_decodeDataLock.withLock {
-            m_dataDeque.addLast(data)
+            organize_buffer(data, m_dataDeque)
             while (m_dataDeque.size > 0 && m_inputIndexDeque.size > 0) {
                 val data = m_dataDeque.removeFirst()
                 val inputIndex = m_inputIndexDeque.removeFirst()
@@ -232,12 +245,44 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
         }
     }
 
+    private fun organize_buffer(data: ByteArray, data_queue: ArrayDeque<ByteArray>){
+        if(data.size < 5) return
+        if(data_queue.size > 30) {
+            var type = eBufferType.BUFFER_NULL
+            if (m_parseCodec != null) {
+                type = m_parseCodec!!.getBufferType(data)
+            }
+            if (type == eBufferType.BUFFER_FLAG_CODEC_CONFIG || type == eBufferType.BUFFER_FLAG_KEY_FRAME) {
+                data_queue.clear()
+                data_queue.add(data)
+            } else {
+                data_queue.add(data)
+            }
+        }
+        else{
+            data_queue.add(data)
+        }
+    }
+
     private fun startThread(thread: HandlerThread) : Handler{
-        thread.start();
+        if(!thread.isAlive) {
+            thread.start()
+        }
         return Handler(thread.getLooper())
     }
 
+    private fun reStart() {
+        if(!m_playing){
+            stopDecode()
+            return
+        }
+        m_isGetVPS = false
+        mMediaCodec = null
+        startDecode()
+    }
+
     fun stopDecode() {
+        m_playing = false
         if (mMediaCodec != null) {
             mMediaCodec!!.stop()
             mMediaCodec!!.release()
@@ -251,6 +296,7 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
         m_codecThread?.quitSafely()
         m_Surface?.release()
         m_Surface = null
+        m_SurfaceTexture.release()
     }
 
     override fun injectMotionEvent(cmotionEvent: cMotionEvent) {
@@ -268,6 +314,10 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
             }
         }
     }
+    @Synchronized
+    private fun onTriggerRenderCallback(surfaceTexture: cSurfaceTexture) {
+        m_renderTriggered.forEach { it(surfaceTexture) }
+    }
 
     override fun getEGLContext(): EGLContext?
     {
@@ -275,7 +325,17 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
     }
 
     override fun getSurfaceTexture(): cSurfaceTexture{
-        return m_SurfaseTexture
+        return m_SurfaceTexture
+    }
+
+    @Synchronized
+    override fun triggerRenderSubscribe(handler: (cSurfaceTexture?) -> Unit){
+        m_renderTriggered.add(handler)
+    }
+
+    @Synchronized
+    override fun triggerRenderUnsubscribe(handler: (cSurfaceTexture?) -> Unit){
+        m_renderTriggered.remove(handler)
     }
 
 }

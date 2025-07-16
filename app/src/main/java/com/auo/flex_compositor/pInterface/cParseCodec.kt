@@ -45,6 +45,7 @@ class cParseH265Codec : iParseCodec{
                 offSet = 3
             }
             val type = (data[offSet].toInt() and 0x7E) shr 1
+
             when (type) {
                 BUFFER_FLAG_CODEC_CONFIG -> return eBufferType.BUFFER_FLAG_CODEC_CONFIG
                 BUFFER_FLAG_KEY_FRAME -> return eBufferType.BUFFER_FLAG_KEY_FRAME
@@ -75,12 +76,20 @@ class cParseH264Codec : iParseCodec{
         return eBufferType.BUFFER_NULL
     }
     override fun getBufferType(data: ByteArray): eBufferType {
+//        Log.d("parseCodec", "${data.size}")
+//        Log.d("parseCodec", "getBufferType")
         if(data.size > 0) {
             var offSet = 4
             if (data[2].toInt() == 0x01) {
                 offSet = 3
             }
             val type = data[offSet].toInt()
+//            getFirstNonAUDNalType(data)
+
+//                Log.d("parseCodec", "${data[3]}")
+//                Log.d("parseCodec", "${getFirstNonAUDNalType(data)}")
+
+
             when (type) {
                 BUFFER_FLAG_CODEC_CONFIG -> return eBufferType.BUFFER_FLAG_CODEC_CONFIG
                 BUFFER_FLAG_KEY_FRAME -> return eBufferType.BUFFER_FLAG_KEY_FRAME
@@ -89,4 +98,33 @@ class cParseH264Codec : iParseCodec{
         }
         return eBufferType.BUFFER_NULL
     }
+
+//    fun getFirstNonAUDNalType(data: ByteArray): Int {
+//        var offset = 0
+//        while (offset + 4 < data.size) {
+//            val startCodeLen = if (data[offset] == 0x00.toByte() && data[offset + 1] == 0x00.toByte() &&
+//                data[offset + 2] == 0x01.toByte()) {
+//                3
+//            } else if (data[offset] == 0x00.toByte() && data[offset + 1] == 0x00.toByte() &&
+//                data[offset + 2] == 0x00.toByte() && data[offset + 3] == 0x01.toByte()) {
+//                4
+//            } else {
+//                offset++
+//                continue
+//            }
+//
+//            val nalHeaderIndex = offset + startCodeLen
+//            if (nalHeaderIndex >= data.size) break
+//
+//            val nalType = data[nalHeaderIndex].toInt() and 0x1F
+//            if (nalType != 9 && nalType != 1) {
+//                Log.d("parseCodec", "${nalType}")
+//                return nalType
+//            }
+//
+//            offset = nalHeaderIndex + 1
+//        }
+//
+//        return -1 // 沒有找到非-AUD 的 NAL
+//    }
 }

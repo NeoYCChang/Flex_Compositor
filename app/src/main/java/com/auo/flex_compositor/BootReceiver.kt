@@ -6,7 +6,7 @@ import android.content.Intent
 import android.util.Log
 import androidx.core.content.ContextCompat
 
-class BootReceiver   : BroadcastReceiver() {
+class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         // Handle the received broadcast here
         if (intent?.action == Intent.ACTION_BOOT_COMPLETED) {
@@ -18,6 +18,9 @@ class BootReceiver   : BroadcastReceiver() {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(activityIntent)
+
+//            val bootStartService = Intent(context, BootStartService::class.java)
+//            ContextCompat.startForegroundService(context, bootStartService)
         }
     }
 }

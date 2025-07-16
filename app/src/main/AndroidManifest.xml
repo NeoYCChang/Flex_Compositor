@@ -16,6 +16,7 @@
     <uses-permission android:name="android.permission.START_ANY_ACTIVITY"/>
     <uses-permission android:name="android.permission.INTERACT_ACROSS_USERS_FULL" />
     <uses-permission android:name="android.permission.ADD_TRUSTED_DISPLAY" />
+    <uses-permission android:name="android.permission.FORCE_STOP_PACKAGES"/>
 
     <application
         android:allowBackup="true"

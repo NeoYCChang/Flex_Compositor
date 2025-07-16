@@ -7,7 +7,8 @@ import java.lang.ref.WeakReference
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.locks.ReentrantReadWriteLock
-import javax.microedition.khronos.egl.EGLContext
+import android.opengl.EGLContext
+import com.auo.flex_compositor.pView.cSurfaceTexture
 import kotlin.concurrent.read
 import kotlin.concurrent.write
 
@@ -17,6 +18,7 @@ class EGLThread(private var myRenderingTools: WeakReference<iEssentialRenderingT
     private var isExit = false
     private var isCreate: Boolean = true
     private var m_sync_count: Int =0
+    private val m_textureQueue = RollingQueue<cSurfaceTexture?>(2)
     private val m_tag = "EGLThread"
 
 
@@ -32,6 +34,7 @@ class EGLThread(private var myRenderingTools: WeakReference<iEssentialRenderingT
                 myRenderingTools.get()!!.getSurface(),
                 myRenderingTools.get()!!.getEGLContext()
             )
+            myRenderingTools.get()!!.getSource().triggerRenderSubscribe(::onTriggerRenderCallback)
         }
         else{
             Log.e("render_thread", "RenderingTool has no Surface or EGLContext")
@@ -39,6 +42,7 @@ class EGLThread(private var myRenderingTools: WeakReference<iEssentialRenderingT
         }
         onCreate()
         while (true) {
+
             if (isExit) {
                 // Release resources
                 Log.d(m_tag, "isExit")
@@ -46,19 +50,19 @@ class EGLThread(private var myRenderingTools: WeakReference<iEssentialRenderingT
                 break
             }
 
-            waitUpdateTexImage()
-
+            if(m_textureQueue.isEmpty()){
+                continue
+            }
+            val surfaceTexture: cSurfaceTexture? = m_textureQueue.poll()
             //sleep(33,670000)
             onChange(width, height)
             if(myRenderingTools.get()!!.Sync(m_sync_count)){
                 m_sync_count = 0
             }
-            onDraw()
-            updateSyncCount()
-            val current = LocalDateTime.now()
-            val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss:SSS")
-            val formatted = current.format(formatter)
-            //Log.d("thread", "render ${formatted}")
+            if(eglHelper!!.makeCurrent()) {
+                onDraw(surfaceTexture)
+                updateSyncCount()
+            }
         }
     }
 
@@ -84,26 +88,37 @@ class EGLThread(private var myRenderingTools: WeakReference<iEssentialRenderingT
         }
     }
 
-    private fun waitUpdateTexImage(){
-        if(myRenderingTools.get()!!.getSource().getSurfaceTexture() != null) {
-            if(!myRenderingTools.get()!!.getSource().getSurfaceTexture()!!.isReleased) {
-                myRenderingTools.get()!!.getSource().getSurfaceTexture()!!.waitUpdateTexImage()
-            }
-        }
+//    private fun waitUpdateTexImage(){
+//        if(myRenderingTools.get()!!.getSource().getSurfaceTexture() != null) {
+//            if(!myRenderingTools.get()!!.getSource().getSurfaceTexture().isReleased) {
+//                myRenderingTools.get()!!.getSource().getSurfaceTexture().waitUpdateTexImage()
+//            }
+//        }
+//    }
+    private fun textureLock(surfaceTexture: cSurfaceTexture){
+        surfaceTexture.lock()
+    }
+
+    private fun textureUnLock(surfaceTexture: cSurfaceTexture){
+        surfaceTexture.unlock()
     }
 
     /**
      * Draw, execute every loop
      */
-    private fun onDraw() {
+    private fun onDraw(surfaceTexture: cSurfaceTexture?) {
         if (myRenderingTools.get()!!.getEGLRender() != null && eglHelper != null) {
-            if(myRenderingTools.get()!!.getSource().getSurfaceTexture() != null) {
-                if(!myRenderingTools.get()!!.getSource().getSurfaceTexture()!!.isReleased) {
-                    myRenderingTools.get()!!.getEGLRender()!!.onDrawFrame(myRenderingTools.get()!!.getSource().getSurfaceTexture()!!.getTextureID())
-                }
+            if(surfaceTexture != null) {
+                textureLock(surfaceTexture)
+                myRenderingTools.get()!!.getEGLRender()!!.onDrawFrame(surfaceTexture.getTextureID())
+                eglHelper?.swapBuffers()
+                textureUnLock(surfaceTexture)
+            }else{
+                myRenderingTools.get()!!.getEGLRender()!!.onDrawFrame(0)
+                eglHelper?.swapBuffers()
             }
-            eglHelper?.swapBuffers()
         }
+
     }
 
     private fun updateSyncCount(){
@@ -124,8 +139,10 @@ class EGLThread(private var myRenderingTools: WeakReference<iEssentialRenderingT
     }
 
     private fun release() {
+        Log.d(m_tag, "release")
+        myRenderingTools.get()!!.getSource().triggerRenderUnsubscribe(::onTriggerRenderCallback)
         if (eglHelper != null) {
-            eglHelper?.destoryEgl()
+            eglHelper?.destroyEgl()
             eglHelper = null
         }
     }
@@ -135,5 +152,36 @@ class EGLThread(private var myRenderingTools: WeakReference<iEssentialRenderingT
             return eglHelper?.getmEglContext()
         }
         return null
+    }
+
+    private fun onTriggerRenderCallback(surfaceTexture: cSurfaceTexture?) {
+        m_textureQueue.add(surfaceTexture)
+    }
+
+    class RollingQueue<T>(private val maxSize: Int) {
+        private val queue = ArrayDeque<T>()
+
+        @Synchronized
+        fun add(item: T) {
+            if (queue.size >= maxSize) {
+                queue.removeFirst()
+            }
+            queue.addLast(item)
+        }
+
+        @Synchronized
+        fun poll(): T? = queue.removeFirstOrNull()
+
+        @Synchronized
+        fun peek(): T? = queue.firstOrNull()
+
+        @Synchronized
+        fun toList(): List<T> = queue.toList()
+
+        @Synchronized
+        fun size(): Int = queue.size
+
+        @Synchronized
+        fun isEmpty(): Boolean = queue.isEmpty()
     }
 }

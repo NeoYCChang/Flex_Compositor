@@ -1,9 +1,6 @@
 package com.auo.flex_compositor.pView
 
 import android.graphics.SurfaceTexture
-import android.util.Log
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
 import java.util.concurrent.locks.ReentrantReadWriteLock
 
 class cSurfaceTexture(textureId: Int) : SurfaceTexture(textureId) {
@@ -17,16 +14,23 @@ class cSurfaceTexture(textureId: Int) : SurfaceTexture(textureId) {
     private var m_width : Int = 960
     private var m_height : Int = 960
     private var m_textureId: Int = textureId
-    private val `textureObject`: Any = Any()
+    private var m_callback: ((cSurfaceTexture) -> Unit)? = null
+    private val m_lock = ReentrantReadWriteLock()
+    private val m_readLock = m_lock.readLock()
+    private val m_writeLock = m_lock.writeLock()
+//    private val `textureObject`: Any = Any()
 
     init {
         setOnFrameAvailableListener(object : SurfaceTexture.OnFrameAvailableListener {
             override fun onFrameAvailable(surfaceTexture: SurfaceTexture?) {
-                val current = LocalDateTime.now()
-                val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss:SSS")
-                val formatted = current.format(formatter)
                 //Log.d(m_tag, "${formatted}")
-                updateTexImage(surfaceTexture)
+                m_writeLock.lock()
+                if(surfaceTexture != null) {
+                    if(!surfaceTexture.isReleased) {
+                        updateTexImage(surfaceTexture)
+                    }
+                }
+                m_writeLock.unlock()
                 //Log.d("MainActivity", "Frame available: processing frame")
             }
         })
@@ -52,35 +56,51 @@ class cSurfaceTexture(textureId: Int) : SurfaceTexture(textureId) {
 
     private fun updateTexImage(surfaceTexture: SurfaceTexture?){
         if(surfaceTexture != null) {
-            synchronized(`textureObject`) {
-                try {
-                    surfaceTexture!!.updateTexImage()
-                    (`textureObject` as Object).notifyAll()
-                } catch (e: InterruptedException) {
-                    e.printStackTrace()
-                }
-            }
+//            synchronized(`textureObject`) {
+//                try {
+                    if(!surfaceTexture.isReleased) {
+                        surfaceTexture.updateTexImage()
+                        m_callback?.invoke(this)
+//                        (`textureObject` as Object).notifyAll()
+                    }
+
+//                } catch (e: InterruptedException) {
+//                    e.printStackTrace()
+//                }
+//            }
         }
     }
 
-    fun switcherChange(){
-        synchronized(`textureObject`) {
-            try {
-                (`textureObject` as Object).notifyAll()
-            } catch (e: InterruptedException) {
-                e.printStackTrace()
-            }
-        }
+//    fun switcherChange(){
+//        synchronized(`textureObject`) {
+//            try {
+//                (`textureObject` as Object).notifyAll()
+//            } catch (e: InterruptedException) {
+//                e.printStackTrace()
+//            }
+//        }
+//    }
+
+//    fun waitUpdateTexImage(){
+//        synchronized(`textureObject`) {
+//            try {
+//                (`textureObject` as Object).wait(1000)
+//            } catch (e: InterruptedException) {
+//                e.printStackTrace()
+//            }
+//        }
+//    }
+
+    fun setTriggerRender(handler: ((cSurfaceTexture) -> Unit)?){
+        m_callback = handler
     }
 
-    fun waitUpdateTexImage(){
-        synchronized(`textureObject`) {
-            try {
-                (`textureObject` as Object).wait(1000)
-            } catch (e: InterruptedException) {
-                e.printStackTrace()
-            }
-        }
+    fun lock(){
+        m_readLock.lock()
+    }
+
+    fun unlock(){
+        m_readLock.unlock()
     }
 
 }

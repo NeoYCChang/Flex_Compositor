@@ -1,6 +1,7 @@
 package com.auo.flex_compositor.pSource
 
 import android.annotation.SuppressLint
+import android.app.ActivityManager
 import android.app.ActivityOptions
 import android.app.Service.DISPLAY_SERVICE
 import android.app.Service.INPUT_SERVICE
@@ -17,8 +18,6 @@ import android.view.InputDevice
 import android.view.InputEvent
 import android.view.MotionEvent
 import android.view.Surface
-import android.view.SurfaceControl
-import com.auo.flex_compositor.pEGLFunction.EGLHelper
 import com.auo.flex_compositor.pEGLFunction.EGLRender
 import com.auo.flex_compositor.pEGLFunction.StaticVariable
 import com.auo.flex_compositor.pInterface.SerializablePointerCoords
@@ -29,7 +28,7 @@ import com.auo.flex_compositor.pInterface.vSize
 import com.auo.flex_compositor.pView.cSurfaceTexture
 import java.lang.reflect.Method
 import java.util.concurrent.locks.ReentrantLock
-import javax.microedition.khronos.egl.EGLContext
+import android.opengl.EGLContext
 import kotlin.concurrent.withLock
 
 class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurfaceSource {
@@ -40,7 +39,7 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
 
     private var m_virtual_display: VirtualDisplay? = null
     private val m_eglcontext: EGLContext? = StaticVariable.public_eglcontext
-    private lateinit var m_SurfaseTexture: cSurfaceTexture
+    private lateinit var m_SurfaceTexture: cSurfaceTexture
     private var m_Surface: Surface? = null
     private var m_injectInputEventMethod : Method? = null
     private var m_motionSetDisplayIdMethod : Method? = null
@@ -52,14 +51,37 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
     private var m_downTime: Long = 0
     private var m_eventTime: Long = 0
     private val m_MotionLock = ReentrantLock()
+    private val m_renderTriggered = mutableListOf<(cSurfaceTexture) -> Unit>()
+    private var m_package_name: String = ""
+    private var m_context: Context? = null
 
 
     constructor(context: Context, name: String, id: Int, size: vSize, appName: String?) : this(name, id)  {
         val textureid: Int = EGLRender.createOESTextureObject()
-        m_SurfaseTexture = cSurfaceTexture(textureid)
-        m_SurfaseTexture.setDefaultBufferSize(size.width, size.height)
-        m_Surface = Surface(m_SurfaseTexture)
+        m_SurfaceTexture = cSurfaceTexture(textureid)
+        m_SurfaceTexture.setTriggerRender(::onTriggerRenderCallback)
+        m_SurfaceTexture.setDefaultBufferSize(size.width, size.height)
+        m_Surface = Surface(m_SurfaceTexture)
         m_appName = appName
+        m_context = context
+
+        val virtualDisplayCallback: VirtualDisplay.Callback = object : VirtualDisplay.Callback() {
+            override fun onPaused() {
+                super.onPaused()
+                Log.d(m_tag, "VirtualDisplay $e_name : Paused")
+            }
+
+            override fun onResumed() {
+                super.onResumed()
+                Log.d(m_tag, "VirtualDisplay $e_name : Resumed")
+            }
+
+            override fun onStopped() {
+                super.onStopped()
+                Log.d(m_tag, "VirtualDisplay $e_name : Stopped")
+            }
+        }
+
         val display_manager = context.getSystemService(DISPLAY_SERVICE) as DisplayManager
         @SuppressLint("WrongConstant")
         m_virtual_display = display_manager.createVirtualDisplay(
@@ -70,18 +92,30 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
             m_Surface,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_SECURE or
             0x100 or //virtual displays will always destroy their content on removal
-            0x400  //Indicates that the display is trusted
+            0x400,  //Indicates that the display is trusted
+            virtualDisplayCallback,
+            null
         )
         Log.d(m_tag, "Create a Virtual Display {displayId: ${m_virtual_display!!.display.displayId} textureid: $textureid  flag: ${m_virtual_display!!.display.flags}}")
         val displayContext: Context = context.createDisplayContext(m_virtual_display!!.display)
         if(m_appName != null) {
             val app_split = m_appName!!.split('/')
             if(app_split.size == 2) {
-                val package_name = app_split[0]
+
+                m_package_name = app_split[0]
                 val activity_path = app_split[1]
+                stopAppByForce(context, m_package_name)
+//                try {
+//                    val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "am force-stop ${m_package_name}"))
+//                    process.waitFor()
+//                } catch (e: Exception) {
+//                    e.printStackTrace()
+//                }
+                val process = Runtime.getRuntime().exec("am force-stop ${m_package_name}")
+                process.waitFor()
                 val intent = Intent()
                 intent.setFlags(Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT or Intent.FLAG_ACTIVITY_NEW_TASK)
-                val comp = ComponentName(package_name, activity_path)
+                val comp = ComponentName(m_package_name, activity_path)
                 intent.setComponent(comp);
                 val options: ActivityOptions = ActivityOptions.makeBasic()
                 // Try to resolve the intent to see if there's a matching activity
@@ -114,8 +148,23 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
     }
 
     fun destroyed(){
-        m_virtual_display?.release()
+        stopAppByForce(m_context, m_package_name)
+
+        m_SurfaceTexture.setTriggerRender(null)
+
+        synchronized(m_renderTriggered) {
+            m_renderTriggered.clear()
+        }
+
+        // Detach Surface
+        m_virtual_display?.surface = null
+
+        m_SurfaceTexture.release()
+
         m_Surface?.release()
+
+        m_virtual_display?.release()
+        m_virtual_display = null
     }
 
     /**
@@ -332,17 +381,40 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
         return m_virtual_display
     }
 
+    @Synchronized
+    private fun onTriggerRenderCallback(surfaceTexture: cSurfaceTexture) {
+        m_renderTriggered.forEach { it(surfaceTexture) }
+    }
+
     override fun getEGLContext(): EGLContext?
     {
         return m_eglcontext
     }
 
     override fun getSurfaceTexture(): cSurfaceTexture{
-        return m_SurfaseTexture
+        return m_SurfaceTexture
+    }
+    @Synchronized
+    override fun triggerRenderSubscribe(handler: (cSurfaceTexture?) -> Unit){
+        m_renderTriggered.add(handler)
+    }
+    @Synchronized
+    override fun triggerRenderUnsubscribe(handler: (cSurfaceTexture?) -> Unit){
+        m_renderTriggered.remove(handler)
     }
 
     fun getTextureID(): Int?{
-        return m_SurfaseTexture.getTextureID()
+        return m_SurfaceTexture.getTextureID()
+    }
+
+    private fun stopAppByForce(context: Context?, packageName: String){
+        if(context != null) {
+            val activityManger: ActivityManager =
+                context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val method: Method = Class.forName("android.app.ActivityManager")
+                .getMethod("forceStopPackage", String::class.java)
+            method.invoke(activityManger, packageName)
+        }
     }
 
 }

@@ -4,15 +4,12 @@ package com.auo.flex_compositor.pEGLFunction
 import android.content.Context
 import android.content.res.Resources
 import android.opengl.GLES11Ext
-import android.opengl.GLES20
-import android.opengl.GLES30
+import android.opengl.GLES32
 import android.util.Log
 import com.auo.flex_compositor.pInterface.deWarp_Parameters
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.locks.ReentrantLock
-import javax.microedition.khronos.egl.EGLConfig
-import javax.microedition.khronos.opengles.GL10
 import kotlin.concurrent.withLock
 import org.w3c.dom.Document
 import org.xml.sax.InputSource
@@ -65,8 +62,8 @@ class EGLRender {
     fun onSurfaceCreated() {
         //GLES20.glEnable(GLES20.GL_TEXTURE_2D);
         // Initialize OpenGL settings (e.g., set the background color)
-        GLES20.glClearColor(0.0f, 0.0f, 0.0f, 1.0f) // Set background color to black
-        GLES20.glEnable(GLES20.GL_DEPTH_TEST) // Enable depth testing
+        GLES32.glClearColor(0.0f, 0.0f, 0.0f, 1.0f) // Set background color to black
+        GLES32.glEnable(GLES32.GL_DEPTH_TEST) // Enable depth testing
         m_AUORenderCallback?.onSurfaceCreatedCallback()
         mProgram = createProgram(m_context!!.resources, "shader/vertex.glsl", "shader/fragment.glsl")
         val handles = activeHandle(mProgram, "vPosition","vCoordinate")
@@ -90,31 +87,60 @@ class EGLRender {
 
     fun onSurfaceChanged(width: Int, height: Int) {
         // Adjust the viewport based on the new surface size
-        GLES20.glViewport(0, 0, width, height)
+        GLES32.glViewport(0, 0, width, height)
     }
 
     // Implement the onDrawFrame() method
     fun onDrawFrame(textureID: Int) {
-        if(m_render_parameters.isUpdate){
+        // 1. Check if OpenGL state is properly initialized
+        if (mProgram == 0 || mVBO == 0 || mEBO == 0) {
+            Log.e(m_tag, "Invalid GL state: mProgram=$mProgram, mVBO=$mVBO, mEBO=$mEBO")
+            return
+        }
+
+        // 2. If update flag is set, update the texture coordinates in VBO
+        if (m_render_parameters.isUpdate) {
+            Log.d(m_tag, "Updating texture VBO")
             updateTextureVBO(m_render_parameters, mTextureSize, mVBO)
             m_render_parameters.isUpdate = false
+            Log.d(m_tag, "Texture VBO updated")
         }
-        // Clear the screen with the background color
-        GLES20.glUseProgram(mProgram)
-        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, mVBO)
-        GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, mEBO)
-        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
-        GLES20.glClearColor(0.0f, 0.0f, 0.0f, 1.0f) // Set background color to black
-        //m_AUORenderCallback?.onDrawFrameCallback()
-        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureID)
-        // Your OpenGL rendering code goes here
-        //Log.d(m_tag, "onDrawFrame")
-        //GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
-        GLES20.glDrawElements(GLES20.GL_TRIANGLES, m_render_parameters.countOfTriangles, GLES20.GL_UNSIGNED_INT, 0)
-        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, 0)
-        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
-        GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, 0)
-        GLES20.glFinish();
+
+        // 3. Use the shader program
+        GLES32.glUseProgram(mProgram)
+
+        // 4. Bind VBO and EBO buffers
+        GLES32.glBindBuffer(GLES32.GL_ARRAY_BUFFER, mVBO)
+
+        GLES32.glBindBuffer(GLES32.GL_ELEMENT_ARRAY_BUFFER, mEBO)
+
+        // 5. Clear screen
+        GLES32.glClear(GLES32.GL_COLOR_BUFFER_BIT or GLES32.GL_DEPTH_BUFFER_BIT)
+        GLES32.glClearColor(0.0f, 0.0f, 0.0f, 1.0f)
+        if(textureID != 0) {
+            // 6. Bind texture
+            GLES32.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureID)
+            // 7. Draw elements
+            val indexCount = m_render_parameters.countOfTriangles
+            if (indexCount > 0) {
+                GLES32.glDrawElements(
+                    GLES32.GL_TRIANGLES,
+                    indexCount,
+                    GLES32.GL_UNSIGNED_INT,
+                    0
+                )
+            } else {
+                Log.e(m_tag, "Invalid index count: $indexCount")
+            }
+
+            // 8. Unbind
+            GLES32.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, 0)
+        }
+        GLES32.glBindBuffer(GLES32.GL_ARRAY_BUFFER, 0)
+        GLES32.glBindBuffer(GLES32.GL_ELEMENT_ARRAY_BUFFER, 0)
+        // 9. Finish
+        GLES32.glFinish()
+
     }
 
     fun setCustomRenderCallback(callback: AUORenderCallback) {
@@ -148,21 +174,21 @@ class EGLRender {
 //            String fragmentSource = AssetsUtils.read(CameraGlSurfaceShowActivity.this, "fragment_texture.glsl");
 //            int fragmentShader = loadShader(GLES20.GL_FRAGMENT_SHADER, fragmentSource);
 
-        m_vertexShader = loadShader(GLES20.GL_VERTEX_SHADER, vertexSrcCode!!)
-        m_fragmentShader = loadShader(GLES20.GL_FRAGMENT_SHADER, fragSrcCode!!)
+        m_vertexShader = loadShader(GLES32.GL_VERTEX_SHADER, vertexSrcCode!!)
+        m_fragmentShader = loadShader(GLES32.GL_FRAGMENT_SHADER, fragSrcCode!!)
 
         // 创建空的OpenGL ES程序
-        var program = GLES20.glCreateProgram()
+        var program = GLES32.glCreateProgram()
 
 
         // 添加顶点着色器到程序中
-        GLES20.glAttachShader(program, m_vertexShader)
+        GLES32.glAttachShader(program, m_vertexShader)
 
         // 添加片段着色器到程序中
-        GLES20.glAttachShader(program, m_fragmentShader)
+        GLES32.glAttachShader(program, m_fragmentShader)
 
         // 创建OpenGL ES程序可执行文件
-        GLES20.glLinkProgram(program)
+        GLES32.glLinkProgram(program)
 
         return program
     }
@@ -177,21 +203,21 @@ class EGLRender {
 
     private fun loadShader(type: Int, srcCode: String?): Int {
         // 创建shader
-        var shader = GLES20.glCreateShader(type)
+        var shader = GLES32.glCreateShader(type)
         // 加载源代码
-        GLES20.glShaderSource(shader, srcCode)
+        GLES32.glShaderSource(shader, srcCode)
         // 编译shader
-        GLES20.glCompileShader(shader)
+        GLES32.glCompileShader(shader)
         val compiled = IntArray(1)
         // 查看编译状态
-        GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, compiled, 0)
+        GLES32.glGetShaderiv(shader, GLES32.GL_COMPILE_STATUS, compiled, 0)
         if (compiled[0] == 0) {
             Log.e(
                 m_tag, ("Could not compile shader:" + shader
-                        + " type = " + (if (type == GLES20.GL_VERTEX_SHADER) "GL_VERTEX_SHADER" else "GL_FRAGMENT_SHADER"))
+                        + " type = " + (if (type == GLES32.GL_VERTEX_SHADER) "GL_VERTEX_SHADER" else "GL_FRAGMENT_SHADER"))
             )
-            Log.e(m_tag, "GLES20 Error:" + GLES20.glGetShaderInfoLog(shader))
-            GLES20.glDeleteShader(shader)
+            Log.e(m_tag, "GLES20 Error:" + GLES32.glGetShaderInfoLog(shader))
+            GLES32.glDeleteShader(shader)
             shader = 0
         }
         return shader
@@ -201,8 +227,8 @@ class EGLRender {
     private fun activeHandle(program: Int, glVarPosition: String, glVarCoordinate: String) :  IntArray {
         // Set up attributes and uniforms (code omitted for brevity)
         val handles = IntArray(2)
-        handles[0] = GLES20.glGetAttribLocation(program, glVarPosition)
-        handles[1] = GLES20.glGetAttribLocation(program, glVarCoordinate)
+        handles[0] = GLES32.glGetAttribLocation(program, glVarPosition)
+        handles[1] = GLES32.glGetAttribLocation(program, glVarCoordinate)
 
         return handles
     }
@@ -334,10 +360,10 @@ class EGLRender {
         textcoodBuffer.put(textcoods.toFloatArray())
         textcoodBuffer.position(0)
 
-        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vbo)
+        GLES32.glBindBuffer(GLES32.GL_ARRAY_BUFFER, vbo)
         var offset = renderParameters.vertices.size  * 4
-        GLES20.glBufferSubData(GLES20.GL_ARRAY_BUFFER, offset, textcoods.size * 4, textcoodBuffer)
-        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
+        GLES32.glBufferSubData(GLES32.GL_ARRAY_BUFFER, offset, textcoods.size * 4, textcoodBuffer)
+        GLES32.glBindBuffer(GLES32.GL_ARRAY_BUFFER, 0)
     }
 
     private fun setDeWarpMode(resources: Resources, dewarp_file: String, renderParameters: Render_Parameters,
@@ -433,29 +459,29 @@ class EGLRender {
             val tex = IntArray(1)
 
             //Generate a texture
-            GLES20.glGenTextures(1, tex, 0)
+            GLES32.glGenTextures(1, tex, 0)
 
             //Bind this texture to the external texture.
-            GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, tex[0])
+            GLES32.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, tex[0])
 
             //Set texture filtering parameters.
-            GLES20.glTexParameterf(
+            GLES32.glTexParameterf(
                 GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
-                GL10.GL_TEXTURE_MIN_FILTER, GL10.GL_NEAREST.toFloat()
+                GLES32.GL_TEXTURE_MIN_FILTER, GLES32.GL_NEAREST.toFloat()
             )
-            GLES20.glTexParameterf(
+            GLES32.glTexParameterf(
                 GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
-                GL10.GL_TEXTURE_MAG_FILTER, GL10.GL_LINEAR.toFloat()
+                GLES32.GL_TEXTURE_MAG_FILTER, GLES32.GL_LINEAR.toFloat()
             )
-            GLES20.glTexParameterf(
+            GLES32.glTexParameterf(
                 GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
-                GL10.GL_TEXTURE_WRAP_S, GL10.GL_CLAMP_TO_EDGE.toFloat()
+                GLES32.GL_TEXTURE_WRAP_S, GLES32.GL_CLAMP_TO_EDGE.toFloat()
             )
-            GLES20.glTexParameterf(
+            GLES32.glTexParameterf(
                 GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
-                GL10.GL_TEXTURE_WRAP_T, GL10.GL_CLAMP_TO_EDGE.toFloat()
+                GLES32.GL_TEXTURE_WRAP_T, GLES32.GL_CLAMP_TO_EDGE.toFloat()
             )
-            GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, 0)
+            GLES32.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, 0)
             Log.d(m_tag, "createOESTextureObject")
             return tex[0]
         }
@@ -474,21 +500,21 @@ class EGLRender {
         textcoodBuffer.put(textcoods.toFloatArray())
         textcoodBuffer.position(0)
 
-        GLES20.glGenBuffers(1, vbo, 0)
-        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vbo[0])
-        GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, (vertices.size + textcoods.size) * 4,
-            null, GLES20.GL_STATIC_DRAW)
+        GLES32.glGenBuffers(1, vbo, 0)
+        GLES32.glBindBuffer(GLES32.GL_ARRAY_BUFFER, vbo[0])
+        GLES32.glBufferData(GLES32.GL_ARRAY_BUFFER, (vertices.size + textcoods.size) * 4,
+            null, GLES32.GL_STATIC_DRAW)
         var offset = 0
-        GLES20.glBufferSubData(GLES20.GL_ARRAY_BUFFER, offset, vertices.size * 4, vertexBuffer)
+        GLES32.glBufferSubData(GLES32.GL_ARRAY_BUFFER, offset, vertices.size * 4, vertexBuffer)
         offset += vertices.size  * 4
-        GLES20.glBufferSubData(GLES20.GL_ARRAY_BUFFER, offset, textcoods.size * 4, textcoodBuffer)
+        GLES32.glBufferSubData(GLES32.GL_ARRAY_BUFFER, offset, textcoods.size * 4, textcoodBuffer)
 
-        GLES20.glEnableVertexAttribArray(positionHandle)
-        GLES20.glEnableVertexAttribArray(texCoordHandle)
-        GLES20.glVertexAttribPointer(positionHandle, 3, GLES20.GL_FLOAT, false, 12, 0)
-        GLES20.glVertexAttribPointer(texCoordHandle, 2, GLES20.GL_FLOAT, false, 8, offset)
+        GLES32.glEnableVertexAttribArray(positionHandle)
+        GLES32.glEnableVertexAttribArray(texCoordHandle)
+        GLES32.glVertexAttribPointer(positionHandle, 3, GLES32.GL_FLOAT, false, 12, 0)
+        GLES32.glVertexAttribPointer(texCoordHandle, 2, GLES32.GL_FLOAT, false, 8, offset)
 
-        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
+        GLES32.glBindBuffer(GLES32.GL_ARRAY_BUFFER, 0)
 
         return vbo[0]
     }
@@ -516,24 +542,25 @@ class EGLRender {
         indexBuffer.put(indeices.toIntArray())
         indexBuffer.position(0)
 
-        GLES20.glGenBuffers(1, ebo, 0)
-        GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, ebo[0])
+        GLES32.glGenBuffers(1, ebo, 0)
+        GLES32.glBindBuffer(GLES32.GL_ELEMENT_ARRAY_BUFFER, ebo[0])
 
-        GLES20.glBufferData(GLES20.GL_ELEMENT_ARRAY_BUFFER, indeices.size * 4,
-            indexBuffer, GLES20.GL_STATIC_DRAW)
+        GLES32.glBufferData(GLES32.GL_ELEMENT_ARRAY_BUFFER, indeices.size * 4,
+            indexBuffer, GLES32.GL_STATIC_DRAW)
 
-        GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, 0)
+        GLES32.glBindBuffer(GLES32.GL_ELEMENT_ARRAY_BUFFER, 0)
 
         return ebo[0]
     }
 
     fun release(){
+        Log.d(m_tag, "release")
         var array = intArrayOf(mVBO)
-        GLES20.glDeleteBuffers(1, array, 0)
+        GLES32.glDeleteBuffers(1, array, 0)
         array = intArrayOf(mEBO)
-        GLES20.glDeleteBuffers(1, array, 0)
-        GLES20.glDeleteProgram(mProgram)
-        GLES20.glDeleteShader(m_vertexShader)
-        GLES20.glDeleteShader(m_fragmentShader)
+        GLES32.glDeleteBuffers(1, array, 0)
+        GLES32.glDeleteProgram(mProgram)
+        GLES32.glDeleteShader(m_vertexShader)
+        GLES32.glDeleteShader(m_fragmentShader)
     }
 }

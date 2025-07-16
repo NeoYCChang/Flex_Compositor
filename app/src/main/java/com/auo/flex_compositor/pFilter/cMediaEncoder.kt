@@ -6,6 +6,7 @@ import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Looper
 import android.util.Log
 import android.view.Surface
 import com.auo.flex_compositor.pEGLFunction.EGLRender
@@ -34,7 +35,7 @@ import java.nio.ByteBuffer
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.locks.ReentrantLock
-import javax.microedition.khronos.egl.EGLContext
+import android.opengl.EGLContext
 import kotlin.concurrent.withLock
 
 class cMediaEncoder(context: Context, override val e_name: String, override val e_id: Int, source: iSurfaceSource,
@@ -64,7 +65,7 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
     private val m_codecType: eCodecType = codecType
     private var m_parseCodec: iParseCodec? = null
     private var mMediaCodec: MediaCodec? = null
-    private var m_playing = false
+    private var m_playing = true
 
     // record vps pps sps
     private var m_vps_pps_sps: ByteArray? = null
@@ -170,6 +171,7 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
     private fun encodeData(byteBuffer: ByteBuffer, bufferInfo: MediaCodec.BufferInfo) {
         if(bufferInfo.size > 0) {
             var type = eBufferType.BUFFER_NULL
+
             if(m_parseCodec != null) {
                 type = m_parseCodec!!.getBufferType(byteBuffer, bufferInfo)
             }
@@ -202,11 +204,13 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
             eCodecType.H265 -> {
                 m_parseCodec = cParseH265Codec()
                 mimetype = MediaFormat.MIMETYPE_VIDEO_HEVC
+                //mimetype = "c2.android.hevc.encoder"
                 Log.d(m_tag, "Construct h265 Encoder")
             }
             eCodecType.H264 -> {
                 m_parseCodec = cParseH264Codec()
                 mimetype = MediaFormat.MIMETYPE_VIDEO_AVC
+                //mimetype = "c2.android.avc.encoder"
                 Log.d(m_tag, "Construct h264 Encoder")
             }
         }
@@ -224,10 +228,14 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
         try {
             // Create the MediaCodec encoder
             mMediaCodec = MediaCodec.createEncoderByType(mimetype)
+            //mMediaCodec = MediaCodec.createByCodecName(mimetype)
+            //mMediaCodec = MediaCodec.createByCodecName("c2.android.hevc.encoder")
         } catch (e: IOException) {
             e.printStackTrace()
         }
-        m_codecHandle = startThread(m_codecThread)
+        if(m_codecHandle == null) {
+            m_codecHandle = startThread(m_codecThread)
+        }
 
         mMediaCodec?.setCallback(object : MediaCodec.Callback() {
             override fun onInputBufferAvailable(codec: MediaCodec, index: Int) {
@@ -257,7 +265,17 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
 
             override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
                 Log.e(m_tag, "Encoder error: ${e.message}")
-                stopEncode()
+                try {
+                    codec.stop()
+                } catch (e: IllegalStateException) {
+                    Log.w(m_tag, "MediaCodec stop() ERROR：${e.message}")
+                }
+
+                try {
+                    codec.release()
+                } catch (e: IllegalStateException) {
+                    Log.w(m_tag, "MediaCodec release() ERROR：${e.message}")
+                }
             }
         }, m_codecHandle)
         //mMediaCodec = MediaCodec.createByCodecName("c2.android.hevc.encoder")
@@ -269,26 +287,49 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
     }
 
     private fun startThread(thread: HandlerThread) : Handler{
-        thread.start();
+        if(!thread.isAlive) {
+            thread.start()
+        }
         return Handler(thread.getLooper())
     }
 
-    fun stopEncode() {
-        m_playing = false
-        if (mMediaCodec != null) {
-            mMediaCodec!!.stop()
-            mMediaCodec!!.release()
-            mMediaCodec = null
+    private fun reStart(){
+        if(!m_playing){
+            stopEncode()
+            return
         }
+        mMediaCodec = null
         eglThread?.onDestory()
         eglThread?.join()
         eglThread = null
-        m_webSocketServer?.close()
-        m_webSocketServer?.stop()
-        m_webSocketServer = null
-        m_codecThread?.quitSafely()
         m_surface?.release()
         m_surface = null
+
+        startEncode()
+        eglThread = EGLThread(WeakReference(this))
+        eglThread!!.width = m_vsize.width
+        eglThread!!.height = m_vsize.height
+        eglThread!!.start() // need to run it after startEncode()
+    }
+
+    fun stopEncode() {
+        Thread {
+            m_playing = false
+            if (mMediaCodec != null) {
+                mMediaCodec!!.stop()
+                mMediaCodec!!.release()
+                mMediaCodec = null
+            }
+            eglThread?.onDestory()
+            eglThread?.join()
+            eglThread = null
+            m_webSocketServer?.close()
+            m_webSocketServer?.stop()
+            m_webSocketServer = null
+            m_codecThread?.quitSafely()
+            m_surface?.release()
+            m_surface = null
+        }.start()
     }
 
     private fun onTouchEvent(data: ByteArray) {
@@ -373,8 +414,13 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
         if (kotlin.math.abs(Subtract_sync_count) >= 3) {
             Log.d(m_tag, "Synchronization between cMediaEncoder and EGLThread ${Subtract_sync_count} ")
             m_sync_count = 0
-            mMediaCodec?.flush()
-            mMediaCodec?.start()
+            try {
+                mMediaCodec?.flush()
+                mMediaCodec?.start()
+            } catch (e: IllegalStateException) {
+                Log.e("Encoder", "flush failed: ${e.message}")
+                stopEncode()
+            }
             return true
         }
         return false

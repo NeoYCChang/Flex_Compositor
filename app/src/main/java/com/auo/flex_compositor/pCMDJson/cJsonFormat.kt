@@ -1,5 +1,6 @@
 package com.auo.flex_compositor.pCMDJson
 
+import android.util.Log
 import kotlinx.serialization.json.Json
 import java.io.OutputStream
 
@@ -75,6 +76,7 @@ class CmdProtocol{
                 val obj = json.decodeFromString<jsonRequest>(body)
                 return obj
             } catch (e: Exception) {
+                Log.d("processBodyJsonRequest", "null")
                 return null
             }
         }
@@ -130,7 +132,8 @@ interface JsonRoot {
 
 @kotlinx.serialization.Serializable
 data class jsonRequest(
-    val sourceSwitchers: List<SourceSwitcher>? = null
+    val sourceSwitchers: List<SourceSwitcher>? = null,
+    val sourceMuxs: List<SourceMux>? = null
 ):JsonRoot
 
 @kotlinx.serialization.Serializable
@@ -141,7 +144,18 @@ data class jsonResponse(
 @kotlinx.serialization.Serializable
 data class SourceSwitcher(
     val id: Int? = null,
-    val channel: Int? = null
+    val channel: Int? = null,
+    val homeSourceChannel: Int? = null,
+    val homeStyle: Int? = null
+)
+
+@kotlinx.serialization.Serializable
+data class SourceMux(
+    val id: Int? = null,
+    val sourceChannel: Int? = null,
+    val sinkChannel: Int? = null,
+    val homeSourceChannel: Int? = null,
+    val homeStyle: Int? = null
 )
 
 @kotlinx.serialization.Serializable

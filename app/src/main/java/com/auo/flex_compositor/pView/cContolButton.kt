@@ -14,6 +14,7 @@ import android.view.Display
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.MotionPredictor
+import android.view.View
 import android.view.WindowManager
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -146,6 +147,25 @@ class cContolButton (context: Context, display: Display) : ImageButton(context) 
 
     fun clickEventUnsubscribe(event: () -> Unit) {
         m_clickevent.remove(event)
+    }
+
+    fun show(){
+        if(m_window_manager !== null && m_layoutParmas !== null) {
+            m_layoutParmas!!.x = 0
+            m_layoutParmas!!.y = 0
+
+            m_window_manager?.updateViewLayout(this, m_layoutParmas)
+        }
+        //this.visibility = View.VISIBLE
+    }
+
+    fun hide(){
+        if(m_window_manager !== null && m_layoutParmas !== null) {
+            m_layoutParmas?.x = -50
+            m_layoutParmas?.y = -50
+
+            m_window_manager?.updateViewLayout(this, m_layoutParmas)
+        }
     }
 
     fun destroyed(){

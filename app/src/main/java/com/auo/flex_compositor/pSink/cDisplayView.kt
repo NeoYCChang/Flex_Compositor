@@ -23,7 +23,7 @@ import android.view.ViewGroup.LayoutParams
 import android.view.WindowManager
 import java.lang.ref.WeakReference
 import java.util.concurrent.locks.ReentrantReadWriteLock
-import javax.microedition.khronos.egl.EGLContext
+import android.opengl.EGLContext
 import kotlin.concurrent.read
 import kotlin.concurrent.write
 import com.auo.flex_compositor.pEGLFunction.EGLHelper
@@ -111,7 +111,7 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            params.type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            params.type = WindowManager.LayoutParams.TYPE_SYSTEM_DIALOG
         } else {
             params.type = WindowManager.LayoutParams.TYPE_PHONE
         }
@@ -121,23 +121,23 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
     }
 
     fun show(){
-//        if(m_window_manager !== null && m_layoutParmas !== null && !m_isDestroyed) {
-//            m_layoutParmas!!.x = m_posSize.x
-//            m_layoutParmas!!.y = m_posSize.y
-//
-//            m_window_manager?.updateViewLayout(this, m_layoutParmas)
-//        }
-        this.visibility = View.VISIBLE
+        if(m_window_manager !== null && m_layoutParmas !== null && !m_isDestroyed) {
+            m_layoutParmas!!.x = m_posSize.x
+            m_layoutParmas!!.y = m_posSize.y
+
+            m_window_manager?.updateViewLayout(this, m_layoutParmas)
+        }
+        //this.visibility = View.VISIBLE
     }
 
     fun hide(){
-//        if(m_window_manager !== null && m_layoutParmas !== null && !m_isDestroyed) {
-//            m_layoutParmas?.x = -m_posSize.width
-//            m_layoutParmas?.y = -m_posSize.height
-//
-//            m_window_manager?.updateViewLayout(this, m_layoutParmas)
-//        }
-        this.visibility = View.GONE
+        if(m_window_manager !== null && m_layoutParmas !== null && !m_isDestroyed) {
+            m_layoutParmas?.x = -m_posSize.width
+            m_layoutParmas?.y = -m_posSize.height
+
+            m_window_manager?.updateViewLayout(this, m_layoutParmas)
+        }
+        //this.visibility = View.GONE
     }
 
 
@@ -262,15 +262,20 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
     }
 
     fun destroyed(){
-        if(!m_isDestroyed) {
-            eglThread?.onDestory()
-            eglThread?.join()
-            m_EGLRender?.release()
-            m_EGLRender = null
-            m_window_manager?.removeViewImmediate(this)
-            //m_window_manager?.removeView(this)
-            m_isDestroyed = !m_isDestroyed
-        }
+        Log.d(m_tag, "destroyed")
+        Thread {
+            if (!m_isDestroyed) {
+                eglThread?.onDestory()
+                eglThread?.join()
+                m_EGLRender?.release()
+                m_EGLRender = null
+                Handler(Looper.getMainLooper()).post {
+                    m_window_manager?.removeViewImmediate(this)
+                }
+                //m_window_manager?.removeView(this)
+                m_isDestroyed = !m_isDestroyed
+            }
+        }.start()
     }
 
     // Override this method to handle touch events
@@ -303,7 +308,7 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
 
             touchmapper.injectMotionEvent(cMotionEvent)
         }
-        return false // Return true to indicate the event was handled
+        return true // Return true to indicate the event was handled
     }
 
     //Remove the DisplayView after pressing and holding the top-left corner of

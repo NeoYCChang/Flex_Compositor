@@ -1,13 +1,8 @@
 package com.auo.flex_compositor.pEGLFunction
 
-import android.opengl.EGL14
+import android.opengl.*
 import android.view.Surface
 import android.view.SurfaceControl
-import javax.microedition.khronos.egl.EGL10
-import javax.microedition.khronos.egl.EGLConfig
-import javax.microedition.khronos.egl.EGLContext
-import javax.microedition.khronos.egl.EGLDisplay
-import javax.microedition.khronos.egl.EGLSurface
 
 
 /**
@@ -22,111 +17,98 @@ import javax.microedition.khronos.egl.EGLSurface
  * 9. Refresh the data and display the rendered scene:
  */
 class EGLHelper {
-    private var mEgl: EGL10? = null
     private var mEglDisplay: EGLDisplay? = null
     private var mEglContext: EGLContext? = null
     private var mEglSurface: EGLSurface? = null
-    fun initEgl(surface: Surface?, eglContext: EGLContext?) {
-        // 1. Get an EGL instance
-        mEgl = EGLContext.getEGL() as EGL10
-        // 2. Get the default display device (the window)
-        mEglDisplay = mEgl!!.eglGetDisplay(EGL10.EGL_DEFAULT_DISPLAY)
-        if (mEglDisplay === EGL10.EGL_NO_DISPLAY) {
-            throw RuntimeException("eglGetDisplay failed")
+
+    fun initEgl(surface: Surface?, sharedContext: EGLContext?) {
+        // 1. Get EGL display
+        mEglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+        if (mEglDisplay == EGL14.EGL_NO_DISPLAY) {
+            throw RuntimeException("Unable to get EGL14 display")
         }
-        // 3. Initialize the default display device
+
+        // 2. Initialize EGL
         val version = IntArray(2)
-        if (!mEgl!!.eglInitialize(mEglDisplay, version)) {
-            throw RuntimeException("eglInitialize failed")
+        if (!EGL14.eglInitialize(mEglDisplay, version, 0, version, 1)) {
+            throw RuntimeException("Unable to initialize EGL14")
         }
-        // 4. Set the attributes for the display device
-        val attrbutes = intArrayOf(
-            EGL10.EGL_RED_SIZE, 8,
-            EGL10.EGL_GREEN_SIZE, 8,
-            EGL10.EGL_BLUE_SIZE, 8,
-            EGL10.EGL_ALPHA_SIZE, 8,
-            EGL10.EGL_DEPTH_SIZE, 8,
-            EGL10.EGL_STENCIL_SIZE, 8,
-            EGL10.EGL_RENDERABLE_TYPE, 4,
-            EGL10.EGL_NONE
+
+        // 3. Choose EGL config
+        val attribList = intArrayOf(
+            EGL14.EGL_RED_SIZE, 8,
+            EGL14.EGL_GREEN_SIZE, 8,
+            EGL14.EGL_BLUE_SIZE, 8,
+            EGL14.EGL_ALPHA_SIZE, 8,
+            EGL14.EGL_DEPTH_SIZE, 8,
+            EGL14.EGL_STENCIL_SIZE, 8,
+            EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
+            EGL14.EGL_NONE
         )
-        val num_config = IntArray(1)
-        require(
-            mEgl!!.eglChooseConfig(
-                mEglDisplay,
-                attrbutes,
-                null,
-                1,
-                num_config
-            )
-        ) { "eglChooseConfig failed" }
-        val numConfigs = num_config[0]
-        require(numConfigs > 0) { "No configs match configSpec" }
-        // 5. Get the configuration with the corresponding attributes from the system
-        val configs = arrayOfNulls<EGLConfig>(numConfigs)
-        require(
-            mEgl!!.eglChooseConfig(
-                mEglDisplay, attrbutes, configs, numConfigs,
-                num_config
-            )
-        ) { "eglChooseConfig#2 failed" }
-        // 6. Create an EGL context
-        val attrib_list = intArrayOf(
+
+        val configs = arrayOfNulls<EGLConfig>(1)
+        val numConfigs = IntArray(1)
+        if (!EGL14.eglChooseConfig(mEglDisplay, attribList, 0, configs, 0, configs.size, numConfigs, 0)) {
+            throw RuntimeException("Unable to choose EGL config")
+        }
+        val eglConfig = configs[0]!!
+
+        // 4. Create EGL context
+        val contextAttribs = intArrayOf(
             EGL14.EGL_CONTEXT_CLIENT_VERSION, 2,
-            EGL10.EGL_NONE
+            EGL14.EGL_NONE
         )
-        mEglContext = if (eglContext != null) {
-            mEgl!!.eglCreateContext(mEglDisplay, configs[0], eglContext, attrib_list)
-        } else {
-            mEgl!!.eglCreateContext(
-                mEglDisplay,
-                configs[0], EGL10.EGL_NO_CONTEXT, attrib_list
-            )
+
+        mEglContext = EGL14.eglCreateContext(
+            mEglDisplay, eglConfig,
+            sharedContext ?: EGL14.EGL_NO_CONTEXT,
+            contextAttribs, 0
+        )
+        if (mEglContext == null || mEglContext == EGL14.EGL_NO_CONTEXT) {
+            throw RuntimeException("Failed to create EGL context")
         }
-        // 7. Create the rendering surface
-        mEglSurface = mEgl!!.eglCreateWindowSurface(mEglDisplay, configs[0], surface, null)
-        // 8. Bind the EGL context and surface to the display device
-        if (!mEgl!!.eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface, mEglContext)) {
-            throw RuntimeException("eglMakeCurrent fail")
+
+        // 5. Create EGL surface
+        val surfaceAttribs = intArrayOf(EGL14.EGL_NONE)
+        mEglSurface = EGL14.eglCreateWindowSurface(mEglDisplay, eglConfig, surface, surfaceAttribs, 0)
+        if (mEglSurface == null || mEglSurface == EGL14.EGL_NO_SURFACE) {
+            throw RuntimeException("Failed to create EGL surface")
+        }
+
+        // 6. Make current
+        if (!EGL14.eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface, mEglContext)) {
+            throw RuntimeException("Failed to make EGL context current")
         }
     }
 
-    /**
-     * Swap buffers
-     * Manual refresh
-     *
-     * @return
-     */
     fun swapBuffers(): Boolean {
-        if (mEgl != null) {
-            return mEgl!!.eglSwapBuffers(mEglDisplay, mEglSurface)
-        } else {
-            throw RuntimeException("egl is null")
-        }
+        return EGL14.eglSwapBuffers(mEglDisplay, mEglSurface)
     }
 
     fun getmEglContext(): EGLContext? {
         return mEglContext
     }
 
-    fun destoryEgl() {
-        if (mEgl != null) {
-            // Set surface to null
-            mEgl!!.eglDestroySurface(mEglDisplay, mEglSurface)
-            mEglSurface = null
-            // Set context to null
-            mEgl!!.eglDestroyContext(mEglDisplay, mEglContext)
-            mEglContext = null
-            // Unbind
-            mEgl!!.eglMakeCurrent(
-                mEglDisplay, EGL10.EGL_NO_SURFACE,
-                EGL10.EGL_NO_SURFACE,
-                EGL10.EGL_NO_CONTEXT
+    fun makeCurrent(): Boolean {
+        return EGL14.eglMakeCurrent(
+            mEglDisplay, mEglSurface, mEglSurface, mEglContext
+        )
+    }
+
+    fun destroyEgl() {
+        if (mEglDisplay != null) {
+            EGL14.eglMakeCurrent(
+                mEglDisplay, EGL14.EGL_NO_SURFACE,
+                EGL14.EGL_NO_SURFACE,
+                EGL14.EGL_NO_CONTEXT
             )
-            // Deactivate the display device
-            mEgl!!.eglTerminate(mEglDisplay)
+            EGL14.eglDestroySurface(mEglDisplay, mEglSurface)
+            EGL14.eglDestroyContext(mEglDisplay, mEglContext)
+            EGL14.eglTerminate(mEglDisplay)
+
             mEglDisplay = null
-            mEgl = null
+            mEglSurface = null
+            mEglContext = null
         }
     }
 }
