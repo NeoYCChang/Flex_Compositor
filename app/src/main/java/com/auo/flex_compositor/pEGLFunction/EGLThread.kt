@@ -17,7 +17,6 @@ class EGLThread(private var myRenderingTools: WeakReference<iEssentialRenderingT
     private var eglHelper: EGLHelper? = null
     private var isExit = false
     private var isCreate: Boolean = true
-    private var m_sync_count: Int =0
     private val m_textureQueue = RollingQueue<cSurfaceTexture?>(2)
     private val m_tag = "EGLThread"
 
@@ -56,12 +55,9 @@ class EGLThread(private var myRenderingTools: WeakReference<iEssentialRenderingT
             val surfaceTexture: cSurfaceTexture? = m_textureQueue.poll()
             //sleep(33,670000)
             onChange(width, height)
-            if(myRenderingTools.get()!!.Sync(m_sync_count)){
-                m_sync_count = 0
-            }
+            myRenderingTools.get()!!.Sync()
             if(eglHelper!!.makeCurrent()) {
                 onDraw(surfaceTexture)
-                updateSyncCount()
             }
         }
     }
@@ -121,18 +117,6 @@ class EGLThread(private var myRenderingTools: WeakReference<iEssentialRenderingT
 
     }
 
-    private fun updateSyncCount(){
-//        val current = LocalDateTime.now()
-//        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
-//        val formatted = current.format(formatter)
-//        Log.d("drawing", "drawing ${m_sync_count}  ${formatted}")
-        if(m_sync_count == Int.MAX_VALUE){
-            m_sync_count = 0
-        }
-        else {
-            m_sync_count++
-        }
-    }
 
     fun onDestory() {
         isExit = true

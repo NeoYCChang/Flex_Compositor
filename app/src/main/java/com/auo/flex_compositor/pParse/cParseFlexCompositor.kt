@@ -60,7 +60,6 @@ data class cFlexDisplayView(
     var crop_texture: MutableList<vCropTextureArea>,
     var touchmapping: MutableList<vTouchMapping>,
     var dewarpParameters: MutableList<deWarp_Parameters?>,
-    var switch: MutableList<cFlexSwitch>
 ) : cElementType(id, name, type, vSize(0, 0), source, sink)
 
 data class cFlexEncoder(
@@ -77,7 +76,6 @@ data class cFlexEncoder(
     override var codecType: eCodecType,
     override var bitrate: Int,
     var dewarpParameters: deWarp_Parameters?,
-    var switch: cFlexSwitch?
 ) : cFlexStreamElement(id, name, type, size, source, sink, serverIP, serverPort, codecType, bitrate)
 
 data class cFlexDecoder(
@@ -99,20 +97,21 @@ data class cSinkOption(
     var mux: cFlexMux?
 )
 
+data class switchSrcParm(
+    var source: Int,
+    var channel: Int,
+    var crop_texture: vCropTextureArea,
+    var touchmapping: vTouchMapping,
+    var dewarpParameters: deWarp_Parameters?)
+
 data class cFlexSwitch(
-    override var id: Int,
-    override var name: String,
-    override var type: eElementType,
-    override var size: vSize,
-    override var source: MutableList<Int>?,
-    override var sink: MutableList<Int>?,
-    var channel: MutableList<Int>,
-    var posSize: MutableList<vPos_Size>,
-    var crop_texture: MutableList<vCropTextureArea>,
-    var touchmapping: MutableList<vTouchMapping>,
-    var dewarpParameters: MutableList<deWarp_Parameters?>,
-    var mux: cFlexMux?
-) : cElementType(id, name, type, size, source, sink)
+    var id: Int,
+    var name: String,
+    var type: eElementType,
+    var srcParm: MutableList<switchSrcParm>,
+    var sink: Int,
+    var posSize: vPos_Size
+)
 
 data class cFlexMux(
     override var id: Int,
@@ -122,7 +121,8 @@ data class cFlexMux(
     override var source: MutableList<Int>?,
     override var sink: MutableList<Int>?,
     var switch: MutableList<cFlexSwitch>,
-    var channel: MutableList<Int>
+    var channel: Int,
+    var channels: MutableList<Int>
 ) : cElementType(id, name, type, size, source, sink)
 
 enum class SpecialID(val id: Int) {
@@ -133,13 +133,32 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
     private val m_context = context
     private val m_flexCompositorINI = flexCompositorINI
     private val m_elements = mutableListOf<cElementType>()
+    private val m_switches = mutableListOf<cFlexSwitch>()
     private val m_muxs = mutableListOf<cFlexMux>()
     private val contentManager: cContentManager = cContentManager(context)
+    private val m_envMap: MutableMap<String, String> = mutableMapOf<String, String>()
     private val m_tag = "cParseFlexCompositor"
 
     fun getElements(): MutableList<cElementType>
     {
         return m_elements
+    }
+
+    fun getSwitches(): MutableList<cFlexSwitch>
+    {
+        return m_switches
+    }
+
+    fun getMuxs(): MutableList<cFlexMux>
+    {
+        Log.d(m_tag, "m_muxs: ${m_muxs}")
+        return m_muxs
+    }
+
+    fun getEnvMap(): Map<String, String>
+    {
+        Log.d(m_tag, "m_envMap: ${m_envMap}")
+        return m_envMap
     }
 
 //    fun parse(){
@@ -228,9 +247,13 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
                     which_row++
                     which_row += parseScreenSection(lines, m_elements, max_rows, which_row)
                 }
-                if(line.equals("mapping")) {
+                else if(line.equals("mapping")) {
                     which_row++
                     which_row += parseMappingSection(lines, m_elements, max_rows, which_row)
+                }
+                else if(line.equals("env")){
+                    which_row++
+                    which_row += parseEnvSection(lines, m_envMap, max_rows, which_row)
                 }
             }
         }
@@ -393,7 +416,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
         var offset: Int = 0
         var newcElementType: cFlexDisplayView = cFlexDisplayView(elementID,name,type,null,null,
             0, mutableListOf<vPos_Size>(), mutableListOf<vCropTextureArea>(),
-            mutableListOf<vTouchMapping>(), mutableListOf<deWarp_Parameters?>(), mutableListOf<cFlexSwitch>()
+            mutableListOf<vTouchMapping>(), mutableListOf<deWarp_Parameters?>()
         )
         while (offset < line_split.size){
             when {
@@ -456,6 +479,49 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
         return  newcElementType
     }
 
+    private fun parseEnvSection(lines : List<String>, envMap: MutableMap<String, String>,
+                                   max_rows: Int, start_line: Int): Int {
+        var read_lines = 0
+        while ((start_line + read_lines) < max_rows){
+            var line = removeComment(lines[start_line + read_lines])
+
+            //next section
+            if(line.startsWith('[')){
+                return read_lines
+            }
+
+            if(line.isEmpty()){
+                read_lines++
+                continue
+            }
+
+            while (line.endsWith("\\") && (start_line + read_lines + 1) < max_rows) {
+                read_lines++
+                var next_line = removeComment(lines[start_line + read_lines])
+                if(isNeedToCombine(next_line)) {
+                    line = line.substring(0, line.length - 1) + next_line
+                }
+                else
+                {
+                    line = line.substring(0, line.length - 1)
+                    break
+                }
+
+            }
+            parseEnvSection(line, envMap)
+
+            read_lines++
+        }
+        return read_lines
+    }
+
+    private fun parseEnvSection(line : String, envMap: MutableMap<String, String>){
+        val key_value : List<String> = line.split("=")
+        if(key_value.size == 2){
+            envMap[key_value[0]] = key_value[1]
+        }
+    }
+
     private fun parseMappingSection(lines : List<String>, elementType_list : MutableList<cElementType>,
                                    max_rows: Int, start_line: Int): Int {
         var read_lines = 0
@@ -497,13 +563,12 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
         if (parts.size == 2) {
             val source_with_view = parts[0].trim()
             val sink_with_view = parts[1].trim()
-            val source = source_with_view.substringBefore("(")
+            val source = getElementNameOnMapping(source_with_view)
             val source_view = source_with_view.substringAfter("(").substringBefore(")")
-            val sink = sink_with_view.substringBefore("(")
+            val sink = getElementNameOnMapping(sink_with_view)
             val sink_view = sink_with_view.substringAfter("(").substringBefore(")")
             val sinkOption: cSinkOption = cSinkOption(null, null, null)
             parseSinkOption(sink_with_view, sinkOption)
-
             //dummy is for mux
             if(source.equals("dummy") && sink.equals("dummy")){
                 return
@@ -584,7 +649,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
                             )
                         }
                         else{
-                            srcSinkConnect_noSwitch(
+                            srcSinkConnect(
                                 elementType_list, i, j,
                                 src_view_crop, sink_view_posSize, sinkOption
                             )
@@ -595,10 +660,6 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
                     }
                 }
             }
-        }
-        if(sinkOption.mux != null){
-            sinkOption.mux!!.channel.removeAt(sinkOption.mux!!.channel.lastIndex)
-            m_muxs.remove(sinkOption.mux)
         }
     }
 
@@ -637,7 +698,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
         return false
     }
 
-    private fun srcSinkConnect_noSwitch(elementType_list: MutableList<cElementType>, source_index: Int,
+    private fun srcSinkConnect(elementType_list: MutableList<cElementType>, source_index: Int,
                                         sink_index: Int, src_view_crop: vCropTextureArea,
                                         sink_view_posSize: vPos_Size, sinkOption: cSinkOption){
         var maybeSource = elementType_list[source_index]
@@ -651,7 +712,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
                 eElementType.STREAMENCODER, maybeSink.size, null, null,
                 src_view_crop,
                 vTouchMapping(src_view_crop.offsetX,src_view_crop.offsetY,src_view_crop.width,src_view_crop.height),
-                encoder.serverIP, encoder.serverPort, encoder.codecType, encoder.bitrate, sinkOption.dewarpParameters, null)
+                encoder.serverIP, encoder.serverPort, encoder.codecType, encoder.bitrate, sinkOption.dewarpParameters)
             maybeSink = elementType_list[sink_index]
         }
         else if(maybeSink.type == eElementType.DISPLAYVIEW){
@@ -679,57 +740,40 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
                                         sink_view_posSize: vPos_Size, sinkOption: cSinkOption){
         var maybeSource = elementType_list[source_index]
         var maybeSink = elementType_list[sink_index]
+        if(sinkOption.switch == null){
+            return
+        }
+
+        setSwitchParm(sinkOption.switch!!, 0,maybeSource.id, maybeSink.id, src_view_crop, sink_view_posSize, sinkOption.dewarpParameters)
+
         if(maybeSink.type == eElementType.STREAM){
             val encoder:  cFlexStreamElement = maybeSink as cFlexStreamElement
             if(sinkOption.switch != null) {
-                if (sinkOption.switch!!.source == null) {
-                    sinkOption.switch!!.source = mutableListOf<Int>()
-                }
-                sinkOption.switch!!.source!!.add(maybeSource.id)
-                sinkOption.switch!!.posSize.add(sink_view_posSize)
-                sinkOption.switch!!.crop_texture.add(src_view_crop)
-                sinkOption.switch!!.touchmapping.add(vTouchMapping(src_view_crop.offsetX,src_view_crop.offsetY,src_view_crop.width,src_view_crop.height))
-                sinkOption.switch!!.dewarpParameters.add(sinkOption.dewarpParameters)
+                m_switches.add(sinkOption.switch!!)
             }
             elementType_list[sink_index] = cFlexEncoder(encoder.id, encoder.name,
                 eElementType.STREAMENCODER, maybeSink.size, null, null,
                 src_view_crop,
                 vTouchMapping(src_view_crop.offsetX,src_view_crop.offsetY,src_view_crop.width,src_view_crop.height),
-                encoder.serverIP, encoder.serverPort, encoder.codecType, encoder.bitrate, sinkOption.dewarpParameters, sinkOption.switch)
+                encoder.serverIP, encoder.serverPort, encoder.codecType, encoder.bitrate, sinkOption.dewarpParameters)
             maybeSink = elementType_list[sink_index]
         }
         else if(maybeSink.type == eElementType.STREAMENCODER){
-            val encoder:  cFlexEncoder = maybeSink as cFlexEncoder
-            val switch = classifySwitch(encoder.switch, sinkOption.switch!!)
-            if(switch != null && encoder.switch != null){
-                encoder.switch!!.source!!.add(maybeSource.id)
-                encoder.switch!!.posSize.add(sink_view_posSize)
-                encoder.switch!!.crop_texture.add(src_view_crop)
-                encoder.switch!!.touchmapping.add(vTouchMapping(src_view_crop.offsetX,src_view_crop.offsetY,src_view_crop.width,src_view_crop.height))
-                encoder.switch!!.dewarpParameters.add(sinkOption.dewarpParameters)
-                switch.channel.add(sinkOption.switch!!.channel[0])
+            val switch = classifySwitch(m_switches, sinkOption.switch!!)
+            if(switch != null){
+                switch.srcParm.add(sinkOption.switch!!.srcParm[0])
             }
         }
         else if(maybeSink.type == eElementType.DISPLAYVIEW){
-            val displayview: cFlexDisplayView = maybeSink as cFlexDisplayView
             if(sinkOption.switch != null) {
-                var switch = classifySwitch(displayview.switch, sinkOption.switch!!)
+                var switch = classifySwitch(m_switches, sinkOption.switch!!)
                 if(switch == null) {
                     switch = sinkOption.switch
-                    displayview.switch.add(switch!!)
+                    m_switches.add(switch!!)
                 }
                 else{
-                    switch.channel.add(sinkOption.switch!!.channel[0])
+                    switch.srcParm.add(sinkOption.switch!!.srcParm[0])
                 }
-                if(switch.source == null)
-                {
-                    switch.source = mutableListOf<Int>()
-                }
-                switch.source!!.add(maybeSource.id)
-                switch.posSize.add(sink_view_posSize)
-                switch.crop_texture.add(src_view_crop)
-                switch.touchmapping.add(vTouchMapping(src_view_crop.offsetX,src_view_crop.offsetY,src_view_crop.width,src_view_crop.height))
-                switch.dewarpParameters.add(sinkOption.dewarpParameters)
             }
         }
 
@@ -748,58 +792,22 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
         if(sinkOption.mux == null){
             return
         }
-        val switch_size = sinkOption.mux!!.switch.size
-        val switch : cFlexSwitch
-        if(sinkOption.mux!!.switch.size == 0){
-            switch = cFlexSwitch(-1, "switch_$switch_size", eElementType.SWITCH,
-                vSize(0,0), null, null, sinkOption.mux!!.channel,
-                mutableListOf<vPos_Size>(), mutableListOf<vCropTextureArea>(),
-                mutableListOf<vTouchMapping>(), mutableListOf<deWarp_Parameters?>(), sinkOption.mux
-            )
-            sinkOption.mux!!.switch.add(switch)
-        }
-        else{
-            switch = cFlexSwitch(-1, "switch_$switch_size", eElementType.SWITCH,
-                vSize(0,0), sinkOption.mux!!.switch[0].source, null, sinkOption.mux!!.channel,
-                mutableListOf<vPos_Size>(), sinkOption.mux!!.switch[0].crop_texture,
-                sinkOption.mux!!.switch[0].touchmapping, mutableListOf<deWarp_Parameters?>(), sinkOption.mux
-            )
-            sinkOption.mux!!.switch.add(switch)
-        }
+
+        val now_mux = managerMuxs(m_muxs, sinkOption.mux!!)
+
+        val switch = managerSwitchOfMux(now_mux, sinkOption.mux!!.channel)
+        setSwitchParm(switch, switch.srcParm.size - 1,
+            maybeSource.id, maybeSink.id, src_view_crop, sink_view_posSize, sinkOption.dewarpParameters)
 
         if(maybeSink.type == eElementType.STREAM){
             val encoder:  cFlexStreamElement = maybeSink as cFlexStreamElement
-
-            if (switch.source == null) {
-                switch.source = mutableListOf<Int>()
-            }
-            switch.source!!.add(maybeSource.id)
-            switch.posSize.add(sink_view_posSize)
-            switch.crop_texture.add(src_view_crop)
-            switch.touchmapping.add(vTouchMapping(src_view_crop.offsetX,src_view_crop.offsetY,src_view_crop.width,src_view_crop.height))
-            switch.dewarpParameters.add(sinkOption.dewarpParameters)
 
             elementType_list[sink_index] = cFlexEncoder(encoder.id, encoder.name,
                 eElementType.STREAMENCODER, maybeSink.size, null, null,
                 src_view_crop,
                 vTouchMapping(src_view_crop.offsetX,src_view_crop.offsetY,src_view_crop.width,src_view_crop.height),
-                encoder.serverIP, encoder.serverPort, encoder.codecType, encoder.bitrate, sinkOption.dewarpParameters, switch)
+                encoder.serverIP, encoder.serverPort, encoder.codecType, encoder.bitrate, sinkOption.dewarpParameters)
             maybeSink = elementType_list[sink_index]
-        }
-        else if(maybeSink.type == eElementType.DISPLAYVIEW){
-            val displayview: cFlexDisplayView = maybeSink as cFlexDisplayView
-
-            displayview.switch.add(switch)
-            if(switch.source == null)
-            {
-                switch.source = mutableListOf<Int>()
-            }
-            switch.source!!.add(maybeSource.id)
-            switch.posSize.add(sink_view_posSize)
-            switch.crop_texture.add(src_view_crop)
-            switch.touchmapping.add(vTouchMapping(src_view_crop.offsetX,src_view_crop.offsetY,src_view_crop.width,src_view_crop.height))
-            switch.dewarpParameters.add(sinkOption.dewarpParameters)
-
         }
         if(maybeSource.sink == null)
         {
@@ -814,54 +822,19 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
         if(sinkOption.mux == null){
             return
         }
-        val switch_size = sinkOption.mux!!.switch.size
-        val switch : cFlexSwitch
-        if(sinkOption.mux!!.switch.size == 0){
-            switch = cFlexSwitch(-1, "switch_$switch_size", eElementType.SWITCH,
-                vSize(0,0), null, null, sinkOption.mux!!.channel,
-                mutableListOf<vPos_Size>(), mutableListOf<vCropTextureArea>(),
-                mutableListOf<vTouchMapping>(), mutableListOf<deWarp_Parameters?>(), sinkOption.mux
-            )
-            sinkOption.mux!!.switch.add(switch)
-        }
-        else{
-            switch = cFlexSwitch(-1, "switch_$switch_size", eElementType.SWITCH,
-                vSize(0,0), sinkOption.mux!!.switch[0].source, null, sinkOption.mux!!.channel,
-                mutableListOf<vPos_Size>(), sinkOption.mux!!.switch[0].crop_texture,
-                sinkOption.mux!!.switch[0].touchmapping, mutableListOf<deWarp_Parameters?>(), sinkOption.mux
-            )
-            sinkOption.mux!!.switch.add(switch)
-        }
+        val now_mux = managerMuxs(m_muxs, sinkOption.mux!!)
+        val switch = managerSwitchOfMux(now_mux, sinkOption.mux!!.channel)
+        setSwitchParm(switch, switch.srcParm.size - 1,
+            SpecialID.DUMMY.id, maybeSink.id, vCropTextureArea(0,0,1,1), sink_view_posSize, sinkOption.dewarpParameters)
 
         if(maybeSink.type == eElementType.STREAM){
             val encoder:  cFlexStreamElement = maybeSink as cFlexStreamElement
-
-            if (switch.source == null) {
-                switch.source = mutableListOf<Int>()
-            }
-            switch.posSize.add(sink_view_posSize)
-            switch.dewarpParameters.add(sinkOption.dewarpParameters)
 
             elementType_list[sink_index] = cFlexEncoder(encoder.id, encoder.name,
                 eElementType.STREAMENCODER, maybeSink.size, null, null,
                 vCropTextureArea(0,0,1,1),
                 vTouchMapping(0,0,1,1),
-                encoder.serverIP, encoder.serverPort, encoder.codecType, encoder.bitrate, sinkOption.dewarpParameters, switch)
-        }
-        else if(maybeSink.type == eElementType.DISPLAYVIEW){
-            val displayview: cFlexDisplayView = maybeSink as cFlexDisplayView
-
-            displayview.switch.add(switch)
-            if(switch.source == null)
-            {
-                switch.source = mutableListOf<Int>()
-            }
-
-            switch.posSize.add(sink_view_posSize)
-            switch.dewarpParameters.add(sinkOption.dewarpParameters)
-            switch.source!!.add(SpecialID.DUMMY.id)
-            switch.crop_texture.add(vCropTextureArea(0,0,1,1))
-            switch.touchmapping.add(vTouchMapping(0,0,1,1))
+                encoder.serverIP, encoder.serverPort, encoder.codecType, encoder.bitrate, sinkOption.dewarpParameters)
         }
     }
 
@@ -877,27 +850,81 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
                 eElementType.STREAMDECODER, decoder.size, null, null,
                 decoder.serverIP, decoder.serverPort, decoder.codecType, decoder.bitrate)
         }
-        val switch_size = sinkOption.mux!!.switch.size
-        val switch : cFlexSwitch
-        if(sinkOption.mux!!.switch.size == 0){
-            switch = cFlexSwitch(-1, "switch_$switch_size", eElementType.SWITCH,
-                vSize(0,0), null, null, sinkOption.mux!!.channel,
-                mutableListOf<vPos_Size>(), mutableListOf<vCropTextureArea>(),
-                mutableListOf<vTouchMapping>(), mutableListOf<deWarp_Parameters?>(), sinkOption.mux
-            )
-            sinkOption.mux!!.switch.add(switch)
+        val now_mux = managerMuxs(m_muxs, sinkOption.mux!!)
+
+        val switch = managerSwitchOfMux(now_mux, sinkOption.mux!!.channel)
+        setSwitchParm(switch, switch.srcParm.size - 1,
+            maybeSource.id, SpecialID.DUMMY.id, src_view_crop, vPos_Size(0,0,1,1),sinkOption.dewarpParameters)
+    }
+
+    private fun getElementNameOnMapping(str: String):String{
+        val indexOfParen = str.indexOf('(')
+        val indexOfComma = str.indexOf(',')
+
+        val firstIndex = listOf(indexOfParen, indexOfComma)
+            .filter { it > 0 } // 過濾掉沒出現或出現在 index 0 的情況
+            .minOrNull()
+
+        val name = if (firstIndex != null) {
+            str.substring(0, firstIndex)
+        } else {
+            str
+        }
+
+        return name
+    }
+
+    private fun setSwitchParm(switch: cFlexSwitch, srcParm_index: Int, sourceID: Int, sinkID: Int, src_view_crop: vCropTextureArea,
+                              sink_view_posSize: vPos_Size, dewarpParameters: deWarp_Parameters?){
+        if(srcParm_index>=0 && switch.srcParm.size > srcParm_index){
+            switch.srcParm[srcParm_index].source = sourceID
+            switch.srcParm[srcParm_index].crop_texture = src_view_crop
+            switch.srcParm[srcParm_index].touchmapping = vTouchMapping(src_view_crop.offsetX,src_view_crop.offsetY,src_view_crop.width,src_view_crop.height)
+            switch.srcParm[srcParm_index].dewarpParameters = dewarpParameters
+        }
+        switch.sink= sinkID
+        switch.posSize = sink_view_posSize
+    }
+
+    private fun managerMuxs(muxs: MutableList<cFlexMux>, mux: cFlexMux) : cFlexMux{
+        val already_exists_mux = classifyMux(muxs, mux)
+        val now_mux: cFlexMux
+        if(already_exists_mux != null){
+            now_mux = already_exists_mux
+            now_mux.channels.add(mux.channel)
         }
         else{
-            switch = cFlexSwitch(-1, "switch_$switch_size", eElementType.SWITCH,
-                vSize(0,0), sinkOption.mux!!.switch[0].source, null, sinkOption.mux!!.channel,
-                mutableListOf<vPos_Size>(), sinkOption.mux!!.switch[0].crop_texture,
-                sinkOption.mux!!.switch[0].touchmapping, mutableListOf<deWarp_Parameters?>(), sinkOption.mux
-            )
-            sinkOption.mux!!.switch.add(switch)
+            now_mux = mux
+            muxs.add(now_mux)
         }
-        switch.source!!.add(maybeSource.id)
-        switch.crop_texture.add(src_view_crop)
-        switch.touchmapping.add(vTouchMapping(src_view_crop.offsetX,src_view_crop.offsetY,src_view_crop.width,src_view_crop.height))
+        return now_mux
+    }
+
+    private fun managerSwitchOfMux(mux: cFlexMux, addChannel: Int) : cFlexSwitch{
+        val switch_size = mux.switch.size
+        val switch : cFlexSwitch
+        if(mux.switch.size == 0){
+            val srcParm: switchSrcParm = switchSrcParm(-1, addChannel,
+                vCropTextureArea(0,0,1,1),
+                vTouchMapping(0,0,1,1),null
+            )
+            switch = cFlexSwitch(-1, "switch_$switch_size", eElementType.SWITCH,
+                mutableListOf<switchSrcParm>(srcParm), -1 , vPos_Size(0,0,1,1)
+            )
+            mux.switch.add(switch)
+        }
+        else{
+            //Share the object with the first-created switch
+            val srcParm: switchSrcParm = switchSrcParm(-1, addChannel,
+                vCropTextureArea(0,0,1,1),
+                vTouchMapping(0,0,1,1),null
+            )
+            mux.switch[0].srcParm.add(srcParm)
+            switch = cFlexSwitch(-1, "switch_$switch_size", eElementType.SWITCH,
+                 mux.switch[0].srcParm, -1 , vPos_Size(0,0,1,1))
+            mux.switch.add(switch)
+        }
+        return switch
     }
 
     private fun classifySwitch(beSwitch: cFlexSwitch?, switch: cFlexSwitch): cFlexSwitch?{
@@ -909,10 +936,19 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
         return null
     }
 
-    private fun classifySwitch(switchs: MutableList<cFlexSwitch>, switch: cFlexSwitch): cFlexSwitch?{
-        for(sw in switchs){
+    private fun classifySwitch(switches: MutableList<cFlexSwitch>, switch: cFlexSwitch): cFlexSwitch?{
+        for(sw in switches){
             if (sw.id == switch.id) {
                 return sw
+            }
+        }
+        return null
+    }
+
+    private fun classifyMux(muxs: MutableList<cFlexMux>, mux: cFlexMux): cFlexMux?{
+        for(m in muxs){
+            if (m.id == mux.id) {
+                return m
             }
         }
         return null
@@ -957,10 +993,12 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
                             val channel = result_split[1].trim().toIntOrNull()
 
                             if (id != null && channel != null) {
+                                val srcParm: switchSrcParm = switchSrcParm(-1, channel,
+                                    vCropTextureArea(0,0,1,1),
+                                    vTouchMapping(0,0,1,1),null
+                                )
                                 sinkOption.switch = cFlexSwitch(id, "switch_$id", eElementType.SWITCH,
-                                    vSize(0,0), null, null, mutableListOf<Int>(channel),
-                                    mutableListOf<vPos_Size>(), mutableListOf<vCropTextureArea>(),
-                                    mutableListOf<vTouchMapping>(), mutableListOf<deWarp_Parameters?>(), null
+                                    mutableListOf<switchSrcParm>(srcParm), -1, vPos_Size(0,0,1,1)
                                 )
                             }
                         }
@@ -972,19 +1010,13 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
                             val id = result_split[0].trim().toIntOrNull()
                             val channel = result_split[1].trim().toIntOrNull()
                             if (id != null && channel != null) {
-                                for(mux in m_muxs){
-                                    if(mux.id == id){
-                                        sinkOption.mux = mux
-                                        sinkOption.mux!!.channel.add(channel)
-                                    }
-                                }
+
                                 if(sinkOption.mux == null) {
                                     sinkOption.mux = cFlexMux(
                                         id, "mux_$id", eElementType.Mux,
                                         vSize(0, 0), null, null, mutableListOf<cFlexSwitch>(),
-                                        mutableListOf<Int>(channel)
+                                        channel, mutableListOf<Int>(channel)
                                     )
-                                    m_muxs.add(sinkOption.mux!!)
                                 }
                             }
                         }

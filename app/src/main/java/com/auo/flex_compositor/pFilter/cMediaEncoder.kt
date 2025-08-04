@@ -36,6 +36,7 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.locks.ReentrantLock
 import android.opengl.EGLContext
+import com.auo.flex_compositor.pInterface.eCodecState
 import kotlin.concurrent.withLock
 
 class cMediaEncoder(context: Context, override val e_name: String, override val e_id: Int, source: iSurfaceSource,
@@ -65,7 +66,9 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
     private val m_codecType: eCodecType = codecType
     private var m_parseCodec: iParseCodec? = null
     private var mMediaCodec: MediaCodec? = null
-    private var m_playing = true
+    private var m_isCallStop = false
+    private var m_codecState = eCodecState.RELEASED
+    private var m_codecGeneration = 0
 
     // record vps pps sps
     private var m_vps_pps_sps: ByteArray? = null
@@ -79,7 +82,9 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
     private var m_codecHandle: Handler? = null
 
     private val m_tag: String  = "cMediaEncoder"
-    private var m_sync_count: Int =0
+    private var m_draw_sync: Int = 0
+    private var m_encode_sync: Int = 0
+    private var m_isNeedToReset = false
 
     init {
         val callback = object : cWebSocketServer.SocketCallback{
@@ -225,24 +230,23 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, SCREEN_FRAME_INTERVAL)
         }
 
-        try {
-            // Create the MediaCodec encoder
-            mMediaCodec = MediaCodec.createEncoderByType(mimetype)
-            //mMediaCodec = MediaCodec.createByCodecName(mimetype)
-            //mMediaCodec = MediaCodec.createByCodecName("c2.android.hevc.encoder")
-        } catch (e: IOException) {
-            e.printStackTrace()
-        }
+        // Create the MediaCodec encoder
+        mMediaCodec = MediaCodec.createEncoderByType(mimetype)
+        //mMediaCodec = MediaCodec.createByCodecName(mimetype)
+        //mMediaCodec = MediaCodec.createByCodecName("c2.android.hevc.encoder")
+
         if(m_codecHandle == null) {
             m_codecHandle = startThread(m_codecThread)
         }
-
+        m_codecGeneration++
+        val currentGeneration = m_codecGeneration
         mMediaCodec?.setCallback(object : MediaCodec.Callback() {
             override fun onInputBufferAvailable(codec: MediaCodec, index: Int) {
                 // There's no need to handle it, because the input is the Surface.
             }
 
             override fun onOutputBufferAvailable(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
+                if (m_codecGeneration != currentGeneration) return
                 try {
                     if (index >= 0) {
                         val byteBuffer = codec.getOutputBuffer(index)
@@ -265,25 +269,17 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
 
             override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
                 Log.e(m_tag, "Encoder error: ${e.message}")
-                try {
-                    codec.stop()
-                } catch (e: IllegalStateException) {
-                    Log.w(m_tag, "MediaCodec stop() ERROR：${e.message}")
-                }
-
-                try {
-                    codec.release()
-                } catch (e: IllegalStateException) {
-                    Log.w(m_tag, "MediaCodec release() ERROR：${e.message}")
-                }
+                m_codecState = eCodecState.ERROR
+                reStart()
             }
         }, m_codecHandle)
         //mMediaCodec = MediaCodec.createByCodecName("c2.android.hevc.encoder")
         mMediaCodec?.configure(mediaFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-
+        m_codecState = eCodecState.CONFIGURED
         // Create the input surface for encoding
         m_surface = mMediaCodec?.createInputSurface()
         mMediaCodec?.start()
+        m_codecState = eCodecState.STARTED
     }
 
     private fun startThread(thread: HandlerThread) : Handler{
@@ -294,9 +290,20 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
     }
 
     private fun reStart(){
-        if(!m_playing){
+        m_isNeedToReset = false
+        if(m_isCallStop){
             stopEncode()
             return
+        }
+        when(m_codecState){
+            eCodecState.CONFIGURED->mMediaCodec?.reset()
+            eCodecState.STARTED-> {
+                mMediaCodec?.stop()
+                mMediaCodec?.release()
+            }
+            eCodecState.STOPPED->mMediaCodec?.release()
+            eCodecState.ERROR->mMediaCodec?.release()
+            eCodecState.RELEASED -> TODO()
         }
         mMediaCodec = null
         eglThread?.onDestory()
@@ -305,6 +312,8 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
         m_surface?.release()
         m_surface = null
 
+        m_encode_sync = 0
+        m_draw_sync = 0
         startEncode()
         eglThread = EGLThread(WeakReference(this))
         eglThread!!.width = m_vsize.width
@@ -314,7 +323,7 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
 
     fun stopEncode() {
         Thread {
-            m_playing = false
+            m_isCallStop = true
             if (mMediaCodec != null) {
                 mMediaCodec!!.stop()
                 mMediaCodec!!.release()
@@ -326,7 +335,7 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
             m_webSocketServer?.close()
             m_webSocketServer?.stop()
             m_webSocketServer = null
-            m_codecThread?.quitSafely()
+            m_codecThread.quitSafely()
             m_surface?.release()
             m_surface = null
         }.start()
@@ -409,21 +418,19 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
 
     // Detect the difference between the encoder's encoding count
     // and the EGLThread's draw count to determine whether to clear the encoder cache.
-    override fun Sync(sync_count: Int): Boolean {
-        val Subtract_sync_count = sync_count - m_sync_count
-        if (kotlin.math.abs(Subtract_sync_count) >= 3) {
-            Log.d(m_tag, "Synchronization between cMediaEncoder and EGLThread ${Subtract_sync_count} ")
-            m_sync_count = 0
-            try {
-                mMediaCodec?.flush()
-                mMediaCodec?.start()
-            } catch (e: IllegalStateException) {
-                Log.e("Encoder", "flush failed: ${e.message}")
-                stopEncode()
-            }
-            return true
+    override fun Sync() {
+        if(m_draw_sync == Int.MAX_VALUE){
+            m_draw_sync = 0
         }
-        return false
+        else {
+            m_draw_sync++
+        }
+//        val Subtract_sync_count = m_encode_sync - m_draw_sync
+//
+//        if (kotlin.math.abs(Subtract_sync_count) >= 10) {
+//            Log.d(m_tag, "Synchronization between cMediaEncoder and EGLThread ${Subtract_sync_count} ")
+//            m_isNeedToReset = true
+//        }
     }
 
     private fun updateSyncCount(){
@@ -431,11 +438,19 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
 //        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
 //        val formatted = current.format(formatter)
 //        Log.d(m_tag, "encoder ${m_sync_count}  ${formatted}")
-        if(m_sync_count == Int.MAX_VALUE){
-            m_sync_count = 0
+        if(m_encode_sync == Int.MAX_VALUE){
+            m_encode_sync = 0
         }
         else {
-            m_sync_count++
+            m_encode_sync++
+        }
+
+        val Subtract_sync_count = m_encode_sync - m_draw_sync
+
+        if (kotlin.math.abs(Subtract_sync_count) >= 10) {
+            Log.d(m_tag, "Synchronization between cMediaEncoder and EGLThread ${Subtract_sync_count} ")
+            m_isNeedToReset = true
+            reStart()
         }
     }
 

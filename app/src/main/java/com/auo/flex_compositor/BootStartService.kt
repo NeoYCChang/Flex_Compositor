@@ -14,20 +14,31 @@ import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.auo.flex_compositor.pCMDJson.CmdProtocol
+import com.auo.flex_compositor.pCMDJson.GetEnv
+import com.auo.flex_compositor.pCMDJson.MuxStatus
 import com.auo.flex_compositor.pCMDJson.SourceMux
 import com.auo.flex_compositor.pCMDJson.SourceSwitcher
-import com.auo.flex_compositor.pCMDJson.cCmdThread
+import com.auo.flex_compositor.pCMDJson.SwitcherStatus
+import com.auo.flex_compositor.pCMDJson.cCmdNotify
+import com.auo.flex_compositor.pCMDJson.cCmdReqRes
 import com.auo.flex_compositor.pCMDJson.cTestSocketClient
 import com.auo.flex_compositor.pCMDJson.jsonRequest
+import com.auo.flex_compositor.pCMDJson.jsonResponse
+import com.auo.flex_compositor.pCMDJson.jsonStatus
 import com.auo.flex_compositor.pFilter.cMediaDecoder
 import com.auo.flex_compositor.pFilter.cMediaEncoder
 import com.auo.flex_compositor.pFilter.cViewMux
 import com.auo.flex_compositor.pFilter.cViewSwitch
 import com.auo.flex_compositor.pInterface.iSurfaceSource
+import com.auo.flex_compositor.pInterface.vCropTextureArea
+import com.auo.flex_compositor.pNtpTimeHelper.NtpTimeHelper
+import com.auo.flex_compositor.pParse.cElementType
 import com.auo.flex_compositor.pParse.cFlexDecoder
 import com.auo.flex_compositor.pParse.cFlexDisplayView
 import com.auo.flex_compositor.pParse.cFlexEncoder
 import com.auo.flex_compositor.pParse.cFlexMux
+import com.auo.flex_compositor.pParse.cFlexSwitch
 import com.auo.flex_compositor.pParse.cFlexVirtualDisplay
 import com.auo.flex_compositor.pParse.cParseFlexCompositor
 import com.auo.flex_compositor.pParse.eElementType
@@ -42,10 +53,12 @@ class BootStartService : Service() {
     private val m_DisplayViews = mutableListOf<cDisplayView>()
     private val m_MediaDecoders = mutableListOf<cMediaDecoder>()
     private val m_MediaEncoders =  mutableListOf<cMediaEncoder>()
-    private val m_Switchs =  mutableListOf<cViewSwitch>()
+    private val m_Switches =  mutableListOf<cViewSwitch>()
     private val m_Muxs =  mutableListOf<cViewMux>()
     private val m_ControlButoon = mutableListOf<cContolButton>()
-    private var m_CmdThread: cCmdThread? = null
+    private var m_envMap: Map<String, String> = mapOf<String, String>()
+    private var m_CmdReqRes: cCmdReqRes? = null
+    private var m_CmdNotify: cCmdNotify? = null
     private val m_tag = "BootStartService"
     private val m_dataReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -68,6 +81,9 @@ class BootStartService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d("BootStartService", "Running in foreground")
         ServiceStartForeground()
+//        val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+//        am.setTimeZone("Asia/Taipei")
+        syncSystemTime()
         reStart()
         return START_NOT_STICKY
     }
@@ -92,9 +108,15 @@ class BootStartService : Service() {
         startForeground(1, notification) // 👈 Prevent crash
     }
 
+    private fun syncSystemTime(){
+        val ntpTimeHelper: NtpTimeHelper = NtpTimeHelper(this)
+        ntpTimeHelper.syncSystemTimeWithNtp()
+    }
+
     private fun generateElements(){
         val parse: cParseFlexCompositor = cParseFlexCompositor(this, "flexCompositor.ini")
         parse.parse()
+        m_envMap = parse.getEnvMap()
         val all_elements = parse.getElements()
         for (element in all_elements) {
             when {
@@ -139,45 +161,6 @@ class BootStartService : Service() {
                             }
                         }
                     }
-                    for (i in 0 until Downcasting.switch.size) {
-                        val switch = Downcasting.switch[i]
-                        if(switch.source != null){
-                            val sourceList = mutableListOf<iSurfaceSource?>()
-                            for (j in 0 until switch.source!!.size) {
-                                val sourceID = switch.source!![j]
-                                val sourceElement = findSource(sourceID)
-                                sourceList.add(sourceElement)
-                            }
-                            if(sourceList.size > 0){
-                                val viewSwitch: cViewSwitch = cViewSwitch(
-                                    switch.name,
-                                    switch.id, sourceList, switch.channel,
-                                    switch.posSize,
-                                    switch.crop_texture,
-                                    switch.touchmapping,
-                                    switch.dewarpParameters
-                                )
-                                val firstChannel = viewSwitch.getChannelIndex(switch.channel[0])
-                                val displayView = cDisplayView(
-                                    this,
-                                    (Downcasting.name+"_$i"),
-                                    Downcasting.id,
-                                    viewSwitch,
-                                    Downcasting.displayid,
-                                    switch.posSize[firstChannel],
-                                    switch.crop_texture[firstChannel],
-                                    switch.touchmapping[firstChannel],
-                                    switch.dewarpParameters[firstChannel]
-                                )
-                                createControlButton(viewSwitch, Downcasting.displayid)
-                                if(switch.mux != null){
-                                    generateMux(viewSwitch, switch.mux!!)
-                                }
-                                m_Switchs.add(viewSwitch)
-                                m_DisplayViews.add(displayView)
-                            }
-                        }
-                    }
                 }
                 element.type == eElementType.STREAMENCODER-> {
                     val Downcasting = element as cFlexEncoder
@@ -202,74 +185,121 @@ class BootStartService : Service() {
                             }
                         }
                     }
-                    else if(Downcasting.switch != null){
-                        val switch = Downcasting.switch
-                        val sourceList = mutableListOf<iSurfaceSource?>()
-                        for (j in 0 until switch!!.source!!.size) {
-                            val sourceID = switch!!.source!![j]
-                            val sourceElement = findSource(sourceID)
-                            sourceList.add(sourceElement)
-                        }
-
-                        if(sourceList.size > 0){
-                            val viewSwitch: cViewSwitch = cViewSwitch(
-                                switch.name,
-                                switch.id, sourceList, switch.channel,
-                                switch.posSize,
-                                switch.crop_texture,
-                                switch.touchmapping,
-                                switch.dewarpParameters
-                            )
-                            val firstChannel = viewSwitch.getChannelIndex(switch.channel[0])
-                            val encoder = cMediaEncoder(
-                                this,
-                                Downcasting.name,
-                                Downcasting.id,
-                                viewSwitch,
-                                Downcasting.size,
-                                switch.crop_texture[firstChannel],
-                                switch.touchmapping[firstChannel],
-                                Downcasting.serverPort.toInt(),
-                                switch.dewarpParameters[firstChannel],
-                                Downcasting.codecType
-                            )
-                            if(switch.mux != null){
-                                generateMux(viewSwitch, switch.mux!!)
-                            }
-                            m_Switchs.add(viewSwitch)
-                            m_MediaEncoders.add(encoder)
-                        }
-                    }
                 }
             }
         }
-        startCMDThread()
-        //createControlButton()
-        //val testSocketClient: cTestSocketClient = cTestSocketClient()
-
+        val switches = generateSwitch(all_elements, parse.getSwitches(), m_DisplayViews, m_MediaEncoders)
+        m_Switches.addAll(switches.filterNotNull())
+        val muxs = generateMux(all_elements, parse.getMuxs(), m_DisplayViews, m_MediaEncoders)
+        m_Muxs.addAll(muxs)
     }
+    private fun generateSwitch(elements: MutableList<cElementType>, switches: MutableList<cFlexSwitch>,
+                               displayview: MutableList<cDisplayView>, encoders: MutableList<cMediaEncoder>) : MutableList<cViewSwitch?>{
+        val out_switches =  mutableListOf<cViewSwitch?>()
+        for (switch in switches) {
+            if(switch.srcParm.size != 0){
+                val element: cElementType? = findSink(switch.sink, elements)
+                if(element != null) {
+                    when {
+                        element.type == eElementType.DISPLAYVIEW -> {
+                            val Downcasting = element as cFlexDisplayView
+                            val switchesParm = mutableListOf<cViewSwitch.viewSwitchParm>()
+                            for (j in 0 until switch.srcParm.size) {
+                                val sourceID = switch.srcParm[j].source
+                                val sourceElement = findSource(sourceID)
+                                val switchParm = cViewSwitch.viewSwitchParm(sourceElement, switch.srcParm[j].channel,
+                                    switch.srcParm[j].crop_texture,switch.srcParm[j].touchmapping,switch.srcParm[j].dewarpParameters)
+                                switchesParm.add(switchParm)
+                            }
+                            if(switchesParm.size > 0){
+                                val viewSwitch: cViewSwitch = cViewSwitch(
+                                    switch.name,
+                                    switch.id, switchesParm
+                                )
+                                val firstChannel = viewSwitch.getChannelIndex(switchesParm[0].channel)
+                                val displayView = cDisplayView(
+                                    this,
+                                    (Downcasting.name+"_switch_${switch.id}"),
+                                    Downcasting.id,
+                                    viewSwitch,
+                                    Downcasting.displayid,
+                                    switch.posSize,
+                                    switchesParm[0].crop_texture,
+                                    switchesParm[0].touchMapping,
+                                    switchesParm[0].dewarpParameters
+                                )
+                                createControlButton(viewSwitch, Downcasting.displayid)
+                                out_switches.add(viewSwitch)
+                                displayview.add(displayView)
+                            }
+                        }
+                        element.type == eElementType.STREAMENCODER-> {
+                            val Downcasting = element as cFlexEncoder
+                            val switchesParm = mutableListOf<cViewSwitch.viewSwitchParm>()
+                            for (j in 0 until switch.srcParm.size) {
+                                val sourceID = switch.srcParm[j].source
+                                val sourceElement = findSource(sourceID)
+                                val switchParm = cViewSwitch.viewSwitchParm(sourceElement, switch.srcParm[j].channel,
+                                    switch.srcParm[j].crop_texture,switch.srcParm[j].touchmapping,switch.srcParm[j].dewarpParameters)
+                                switchesParm.add(switchParm)
+                            }
 
-    private fun generateMux(switch: cViewSwitch, in_mux: cFlexMux){
-        for (mux in m_Muxs) {
-            if(in_mux.id == mux.e_id){
-                mux.addSwitch(switch)
-                return
+                            if(switchesParm.size > 0){
+                                val viewSwitch: cViewSwitch = cViewSwitch(
+                                    switch.name,
+                                    switch.id, switchesParm
+                                )
+                                val firstChannel = viewSwitch.getChannelIndex(switchesParm[0].channel)
+                                val encoder = cMediaEncoder(
+                                    this,
+                                    (Downcasting.name+"_switch_${switch.id}"),
+                                    Downcasting.id,
+                                    viewSwitch,
+                                    Downcasting.size,
+                                    switchesParm[0].crop_texture,
+                                    switchesParm[0].touchMapping,
+                                    Downcasting.serverPort.toInt(),
+                                    switchesParm[0].dewarpParameters,
+                                    Downcasting.codecType
+                                )
+                                out_switches.add(viewSwitch)
+                                encoders.add(encoder)
+                            }
+                        }
+                    }
+                }
+                else{
+                    out_switches.add(null)
+                }
             }
         }
-        val viewMux: cViewMux = cViewMux(in_mux.name, in_mux.id, mutableListOf<cViewSwitch>(switch), in_mux.channel)
-        m_Muxs.add(viewMux)
+        return out_switches
+    }
+
+    private fun generateMux(elements: MutableList<cElementType>, muxs: MutableList<cFlexMux>,
+                            displayview: MutableList<cDisplayView>, encoders: MutableList<cMediaEncoder>) : MutableList<cViewMux>{
+        val out_muxs =  mutableListOf<cViewMux>()
+        for (mux in muxs) {
+            val switches = generateSwitch(elements, mux.switch, displayview, encoders)
+            val viewMux: cViewMux = cViewMux(mux.name, mux.id, switches, mux.channels)
+            out_muxs.add(viewMux)
+        }
+        return out_muxs
     }
 
     private fun startCMDThread(){
-        m_CmdThread = cCmdThread()
-        val callbackCmd = object : cCmdThread.callbackCmd{
-            override fun onReceiveJson(request: jsonRequest) {
+        m_CmdReqRes = cCmdReqRes()
+        val callbackCmd = object : cCmdReqRes.callbackCmd{
+            override fun onReceiveJson(request: jsonRequest): jsonResponse {
                 Log.d(m_tag, "onReceiveJson")
-                parseCMDSwitchJson(request)
+                return parseCMDSwitchJson(request)
             }
         }
-        m_CmdThread!!.setCallbackCmd(callbackCmd)
-        m_CmdThread!!.start()
+        m_CmdReqRes!!.setCallbackCmd(callbackCmd)
+        m_CmdReqRes!!.start()
+
+        m_CmdNotify = cCmdNotify()
+        m_CmdNotify!!.start()
     }
 
     private fun createControlButton(switch: cViewSwitch, displayID: Int){
@@ -281,7 +311,8 @@ class BootStartService : Service() {
                 if (displayID == display.displayId && (display.flags == 131 || display.flags == 139)) {
                     val controlButton = cContolButton(this, display)
                     val clickevent: () -> Unit = {
-                            switch.switchToDefaultChannel()
+                        m_CmdNotify?.sendBackHome(switch)
+                        switch.switchToDefaultChannel()
                     }
                     controlButton.clickEventSubscribe(clickevent)
                     m_ControlButoon.add(controlButton)
@@ -315,24 +346,38 @@ class BootStartService : Service() {
 
     }
 
-    private fun parseCMDSwitchJson(request: jsonRequest){
+    private fun parseCMDSwitchJson(request: jsonRequest): jsonResponse {
+        val response: jsonResponse = jsonResponse("ok")
         if(request.sourceSwitchers != null){
-            parseSourceSwitcher(request.sourceSwitchers)
+            parseSourceSwitcher(request.sourceSwitchers, response)
         }
         if(request.sourceMuxs != null){
-            parseSourceMux(request.sourceMuxs)
+            parseSourceMux(request.sourceMuxs, response)
         }
+        if(request.getEnv != null){
+            parseGetEnv(request.getEnv, response)
+        }
+        return  response
     }
 
-    private fun parseSourceSwitcher(sourceSwitchers: List<SourceSwitcher>){
+    private fun parseSourceSwitcher(sourceSwitchers: List<SourceSwitcher>, response: jsonResponse){
+        val statues: MutableList<jsonStatus> = mutableListOf<jsonStatus>()
         for(sourceSwitcher in sourceSwitchers){
-
+            var id_exist = false
             if(sourceSwitcher.id != null && sourceSwitcher.channel != null) {
                 val jsonSwitchId = sourceSwitcher.id
                 val jsonSwitchChannel = sourceSwitcher.channel
-                for (switch in m_Switchs) {
+
+                for (switch in m_Switches) {
                     if (jsonSwitchId == switch.e_id){
-                        switch.switchToChannel(jsonSwitchChannel)
+                        id_exist = true
+                        val success = switch.switchToChannel(jsonSwitchChannel)
+                        if(success){
+                            statues.add(jsonStatus(SwitcherStatus.OK.status))
+                        }
+                        else{
+                            statues.add(jsonStatus(SwitcherStatus.CHANNEL_OUT_OF_RANGE.status))
+                        }
                         if(sourceSwitcher.homeSourceChannel != null){
                             switch.setDefaultChannel(sourceSwitcher.homeSourceChannel)
                         }
@@ -349,19 +394,33 @@ class BootStartService : Service() {
                     }
                 }
             }
+            if(!id_exist) {
+                statues.add(jsonStatus(SwitcherStatus.ID_DOSE_NOT_EXIST.status))
+            }
+        }
+        if(response.sourceSwitchers == null){
+            response.sourceSwitchers = statues
         }
     }
 
-    private fun parseSourceMux(sourceMuxs: List<SourceMux>){
+    private fun parseSourceMux(sourceMuxs: List<SourceMux>, response: jsonResponse){
+        val statues: MutableList<jsonStatus> = mutableListOf<jsonStatus>()
         for(sourceMux in sourceMuxs){
-
+            var id_exist = false
             if(sourceMux.id != null && sourceMux.sinkChannel != null && sourceMux.sourceChannel != null) {
                 val jsonMuxId = sourceMux.id
                 val jsonSwitchSinkChannel = sourceMux.sinkChannel
                 val jsonSwitchSourceChannel = sourceMux.sourceChannel
                 for (mux in m_Muxs) {
                     if (jsonMuxId == mux.e_id){
-                        mux.switchMux(jsonSwitchSourceChannel, jsonSwitchSinkChannel)
+                        id_exist = true
+                        val success = mux.switchMux(jsonSwitchSourceChannel, jsonSwitchSinkChannel)
+                        if(success){
+                            statues.add(jsonStatus(MuxStatus.OK.status))
+                        }
+                        else{
+                            statues.add(jsonStatus(MuxStatus.CHANNEL_OUT_OF_RANGE.status))
+                        }
                         if(sourceMux.homeSourceChannel != null){
                             mux.setDefaultChannel(sourceMux.homeSourceChannel, jsonSwitchSinkChannel)
                         }
@@ -377,6 +436,35 @@ class BootStartService : Service() {
                     }
                 }
             }
+            if(!id_exist) {
+                statues.add(jsonStatus(MuxStatus.ID_DOSE_NOT_EXIST.status))
+            }
+        }
+        if(response.sourceMuxs == null){
+            response.sourceMuxs = statues
+        }
+    }
+
+    private fun parseGetEnv(getEnv: List<GetEnv>, response: jsonResponse){
+        val envMap: MutableMap<String, String> = mutableMapOf<String, String>()
+        for(env in getEnv){
+            if(env.obj != null) {
+                if (env.obj.equals("all", ignoreCase = true)) {
+                    for ((key, value) in m_envMap) {
+                        envMap[key] = value
+                    }
+                    break
+                }
+                if(m_envMap.containsKey(env.obj)){
+                    envMap[env.obj] = m_envMap[env.obj]!!
+                }
+                else{
+                    envMap[env.obj] = "null"
+                }
+            }
+        }
+        if(response.getEnv == null){
+            response.getEnv = envMap
         }
     }
 
@@ -387,6 +475,11 @@ class BootStartService : Service() {
             return source2
         }
         return source
+    }
+
+    private fun findSink(sinkID: Int, elements: MutableList<cElementType>): cElementType?{
+        val sink = elements.find { it.id == sinkID }
+        return sink
     }
 
     private fun setVisibility(visible: Boolean){
@@ -418,15 +511,23 @@ class BootStartService : Service() {
         for (control in m_ControlButoon) {
             control.destroyed()
         }
-        m_CmdThread?.close()
+        m_CmdReqRes?.close()
+        m_CmdNotify?.close()
         m_DisplayViews.clear()
         m_MediaEncoders.clear()
         m_MediaDecoders.clear()
         m_VirtualDisplays.clear()
         m_ControlButoon.clear()
-        m_Switchs.clear()
+        m_Switches.clear()
         m_Muxs.clear()
+        parseData_generate()
+    }
+
+    private fun parseData_generate(){
         generateElements()
+        startCMDThread()
+        //createControlButton()
+        //val testSocketClient: cTestSocketClient = cTestSocketClient()
     }
 
     override fun onDestroy() {
@@ -446,13 +547,14 @@ class BootStartService : Service() {
         for (control in m_ControlButoon) {
             control.destroyed()
         }
-        m_CmdThread?.close()
+        m_CmdReqRes?.close()
+        m_CmdNotify?.close()
         m_DisplayViews.clear()
         m_MediaEncoders.clear()
         m_MediaDecoders.clear()
         m_VirtualDisplays.clear()
         m_ControlButoon.clear()
-        m_Switchs.clear()
+        m_Switches.clear()
         m_Muxs.clear()
         Log.d(m_tag, "onDestroy")
         unregisterReceiver(m_dataReceiver)

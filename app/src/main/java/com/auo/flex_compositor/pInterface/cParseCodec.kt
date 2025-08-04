@@ -11,6 +11,11 @@ enum class eCodecType{
 enum class eBufferType{
     BUFFER_FLAG_CODEC_CONFIG, BUFFER_FLAG_KEY_FRAME, BUFFER_OTHER, BUFFER_NULL
 }
+
+enum class eCodecState {
+    CONFIGURED, STARTED, STOPPED, RELEASED, ERROR
+}
+
 interface iParseCodec {
     val BUFFER_FLAG_CODEC_CONFIG: Int
     val BUFFER_FLAG_KEY_FRAME: Int

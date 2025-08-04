@@ -111,8 +111,8 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
 //                } catch (e: Exception) {
 //                    e.printStackTrace()
 //                }
-                val process = Runtime.getRuntime().exec("am force-stop ${m_package_name}")
-                process.waitFor()
+//                val process = Runtime.getRuntime().exec("am force-stop ${m_package_name}")
+//                process.waitFor()
                 val intent = Intent()
                 intent.setFlags(Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT or Intent.FLAG_ACTIVITY_NEW_TASK)
                 val comp = ComponentName(m_package_name, activity_path)

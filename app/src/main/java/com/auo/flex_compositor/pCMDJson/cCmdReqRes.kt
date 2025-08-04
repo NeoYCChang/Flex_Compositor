@@ -1,20 +1,16 @@
 package com.auo.flex_compositor.pCMDJson
 
 import android.util.Log
-import androidx.core.graphics.drawable.toIcon
 import kotlinx.serialization.json.Json
-import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStream
-import java.io.InputStreamReader
 import java.io.OutputStream
-import java.io.PrintWriter
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketTimeoutException
 
-class cCmdThread: Thread() {
-    private val m_tag = "cCmdThread"
+class cCmdReqRes: Thread() {
+    private val m_tag = "cCmdReqRes"
     private var m_callbackCmd: callbackCmd? = null
     private var m_serverSocket: ServerSocket? = null
 
@@ -46,9 +42,12 @@ class cCmdThread: Thread() {
                                 val jsonRoot: JsonRoot? = readBody(socket, input, output, header)
                                 if(jsonRoot != null &&  header.Type != null){
                                     if(header.Type  == "jsonRequest"){
-                                        CmdProtocol.reply(output,"ok")
                                         val request: jsonRequest = jsonRoot as jsonRequest
-                                        m_callbackCmd?.onReceiveJson(request)
+                                        if(m_callbackCmd != null) {
+                                            val response: jsonResponse =
+                                                m_callbackCmd!!.onReceiveJson(request)
+                                            CmdProtocol.reply(output, response)
+                                        }
                                     }
                                 }
                             }
@@ -269,11 +268,10 @@ class cCmdThread: Thread() {
 
     fun close(){
         m_serverSocket?.close()
-        this.join()
     }
 
     interface callbackCmd {
-        fun onReceiveJson(request: jsonRequest)
+        fun onReceiveJson(request: jsonRequest): jsonResponse
     }
 
 

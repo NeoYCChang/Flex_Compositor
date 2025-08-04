@@ -71,8 +71,9 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
-    implementation("org.java-websocket:Java-WebSocket:1.5.3")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
+    implementation(libs.java.websocket)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.commons.net)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

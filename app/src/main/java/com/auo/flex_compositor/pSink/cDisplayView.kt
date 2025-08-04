@@ -339,8 +339,8 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
         return m_surface
     }
 
-    override fun Sync(sync_count: Int): Boolean {
-        return false
+    override fun Sync() {
+
     }
 
 

@@ -12,5 +12,5 @@ interface iEssentialRenderingTools {
     fun getEGLContext() : EGLContext?
     fun getEGLRender() : EGLRender?
     fun getSource() : iSurfaceSource
-    fun Sync(sync_count: Int): Boolean
+    fun Sync()
 }

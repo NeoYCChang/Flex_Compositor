@@ -15,7 +15,7 @@ class CmdProtocol{
 
     companion object {
 
-        private val HeaderType = arrayOf("jsonRequest", "jsonResponse")
+        private val HeaderType = arrayOf("jsonRequest", "jsonResponse", "jsonNotify")
         fun splitCmdToMap(cmd: String): Map<String, String>? {
             val cmdStrLine = cmd.toString().trim()
             val strSplit = cmdStrLine.split(':')
@@ -65,7 +65,8 @@ class CmdProtocol{
 
         private val commandBodyMap: Map<String, (String) -> JsonRoot?> = mapOf(
             HeaderType[0] to { body -> processBodyJsonRequest(body) },
-            HeaderType[1] to { body -> processBodyJsonResponse(body) }
+            HeaderType[1] to { body -> processBodyJsonResponse(body) },
+            HeaderType[2] to { body -> processBodyJsonNotify(body) }
         )
 
         private fun processBodyJsonRequest(body: String) : JsonRoot?{
@@ -93,6 +94,18 @@ class CmdProtocol{
             }
         }
 
+        private fun processBodyJsonNotify(body: String) : JsonRoot?{
+            try {
+                val json = Json {
+                    ignoreUnknownKeys = true
+                }
+                val obj = json.decodeFromString<jsonNotify>(body)
+                return obj
+            } catch (e: Exception) {
+                return null
+            }
+        }
+
         fun reply(output: OutputStream, status: String){
             val jsonresponse: jsonResponse = jsonResponse(status)
             val jsonmessage: String = Json.encodeToString<jsonResponse>(jsonresponse)
@@ -105,6 +118,45 @@ class CmdProtocol{
             // Send response back as bytes
             output.write(replyMessage.toByteArray())
             output.flush()
+        }
+//
+//        fun reply(output: OutputStream, statues: List<String>){
+//            val jsonresponse: jsonResponse = jsonResponse(statues)
+//            val jsonmessage: String = Json.encodeToString<jsonResponse>(jsonresponse)
+//            val checksum = calJsonCheckSum(jsonmessage)
+//            val replyMessage: String = "Type:${HeaderType[1]}\r\n"+
+//                    "Length:${jsonmessage.length}\r\n"+
+//                    "Checksum:${checksum}\r\n"+
+//                    "\r\n${jsonmessage}"
+//
+//            // Send response back as bytes
+//            output.write(replyMessage.toByteArray())
+//            output.flush()
+//        }
+
+        fun reply(output: OutputStream, response: jsonResponse){
+            val jsonmessage: String = Json.encodeToString<jsonResponse>(response)
+            val checksum = calJsonCheckSum(jsonmessage)
+            val replyMessage: String = "Type:${HeaderType[1]}\r\n"+
+                    "Length:${jsonmessage.length}\r\n"+
+                    "Checksum:${checksum}\r\n"+
+                    "\r\n${jsonmessage}"
+
+            // Send response back as bytes
+            output.write(replyMessage.toByteArray())
+            output.flush()
+        }
+
+        fun notifyMessage(obj: String, id: Int) : String{
+            val homeEvent: HomeEvent = HomeEvent(obj, id)
+            val jsonnotify: jsonNotify = jsonNotify(listOf(homeEvent))
+            val jsonmessage: String = Json.encodeToString<jsonNotify>(jsonnotify)
+            val checksum = calJsonCheckSum(jsonmessage)
+            val replyMessage: String = "Type:${HeaderType[1]}\r\n"+
+                    "Length:${jsonmessage.length}\r\n"+
+                    "Checksum:${checksum}\r\n"+
+                    "\r\n${jsonmessage}"
+            return replyMessage
         }
 
         fun calJsonCheckSum(msg: String): String {
@@ -133,13 +185,33 @@ interface JsonRoot {
 @kotlinx.serialization.Serializable
 data class jsonRequest(
     val sourceSwitchers: List<SourceSwitcher>? = null,
-    val sourceMuxs: List<SourceMux>? = null
+    val sourceMuxs: List<SourceMux>? = null,
+    val getEnv: List<GetEnv>? = null
 ):JsonRoot
 
 @kotlinx.serialization.Serializable
 data class jsonResponse(
-    val status: String? = null,
+    val status: String?,
+    var sourceSwitchers: List<jsonStatus>? = null,
+    var sourceMuxs: List<jsonStatus>? = null,
+    var getEnv: Map<String, String>? = null
 ):JsonRoot
+
+@kotlinx.serialization.Serializable
+data class jsonStatus(
+    val status: String? = null,
+)
+
+@kotlinx.serialization.Serializable
+data class jsonNotify(
+    val homeEvent: List<HomeEvent>? = null
+):JsonRoot
+
+enum class SwitcherStatus(val status: String) {
+    OK("ok"),
+    ID_DOSE_NOT_EXIST("switch_id_dose_not_exist"),
+    CHANNEL_OUT_OF_RANGE("channel_out_of_range")
+}
 
 @kotlinx.serialization.Serializable
 data class SourceSwitcher(
@@ -148,6 +220,12 @@ data class SourceSwitcher(
     val homeSourceChannel: Int? = null,
     val homeStyle: Int? = null
 )
+
+enum class MuxStatus(val status: String) {
+    OK("ok"),
+    ID_DOSE_NOT_EXIST("mux_id_dose_not_exist"),
+    CHANNEL_OUT_OF_RANGE("channel_out_of_range")
+}
 
 @kotlinx.serialization.Serializable
 data class SourceMux(
@@ -162,4 +240,15 @@ data class SourceMux(
 data class ReplyStatus(
     val status: String? = null,
     val message: String? = null
+)
+
+@kotlinx.serialization.Serializable
+data class HomeEvent(
+    val obj: String? = null,
+    val id: Int? = null
+)
+
+@kotlinx.serialization.Serializable
+data class GetEnv(
+    val obj: String? = null
 )

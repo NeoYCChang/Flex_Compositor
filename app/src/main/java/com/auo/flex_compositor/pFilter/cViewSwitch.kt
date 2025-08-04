@@ -11,19 +11,19 @@ import com.auo.flex_compositor.pView.cSurfaceTexture
 import android.opengl.EGLContext
 
 class cViewSwitch(override val e_name: String, override val e_id: Int,
-                  sourceList: MutableList<iSurfaceSource?>, channel: MutableList<Int>,
-                  posSize: MutableList<vPos_Size>,
-                  crop_texture: MutableList<vCropTextureArea>,
-                  touchmapping: MutableList<vTouchMapping>,
-                  dewarpParameters: MutableList<deWarp_Parameters?>): iSurfaceSource  {
-    private val m_sourceList: MutableList<iSurfaceSource?> = sourceList
-    private val m_channels = channel
+                  switchesParm: MutableList<viewSwitchParm>): iSurfaceSource  {
+
+    data class viewSwitchParm(val surfaceSource: iSurfaceSource?, val channel: Int,
+                              val crop_texture: vCropTextureArea, val touchMapping: vTouchMapping,
+                              val dewarpParameters: deWarp_Parameters?)
+
+    private val m_sourceList: MutableList<iSurfaceSource?> = mutableListOf<iSurfaceSource?>()
+    private val m_channels: MutableList<Int> = mutableListOf<Int>()
     private var m_notNullSourceChannel = 0
     private var m_nowChannel = 0
-    private val m_posSize: MutableList<vPos_Size> = posSize
-    private val m_crop_texture: MutableList<vCropTextureArea> = crop_texture
-    private val m_touchmapping: MutableList<vTouchMapping> = touchmapping
-    private val m_dewarpParameters: MutableList<deWarp_Parameters?> = dewarpParameters
+    private val m_crop_texture: MutableList<vCropTextureArea> = mutableListOf<vCropTextureArea>()
+    private val m_touchmapping: MutableList<vTouchMapping> = mutableListOf<vTouchMapping>()
+    private val m_dewarpParameters: MutableList<deWarp_Parameters?> = mutableListOf<deWarp_Parameters?>()
     private val m_switchIsTriggered = mutableListOf<() -> Unit>()
     private var m_defaultChannel = 0
     private val m_renderTriggered = mutableListOf<(cSurfaceTexture?) -> Unit>()
@@ -31,6 +31,15 @@ class cViewSwitch(override val e_name: String, override val e_id: Int,
     private val m_tag = "cViewSwitch"
 
     init{
+        for(param in switchesParm){
+            m_sourceList.add(param.surfaceSource)
+            m_channels.add(param.channel)
+            m_crop_texture.add(param.crop_texture)
+            m_touchmapping.add(param.touchMapping)
+            m_dewarpParameters.add(param.dewarpParameters)
+        }
+
+
         var nowChannel = 0
         Log.d(m_tag, "$m_channels")
         for(i in 0 until m_channels.size){
@@ -68,6 +77,7 @@ class cViewSwitch(override val e_name: String, override val e_id: Int,
                 return m_sourceList[m_nowChannel]!!.getSurfaceTexture()
             }
             else{
+                Log.d(m_tag, "m_sourceList[m_notNullSourceChannel]!!.getSurfaceTexture()")
                 return m_sourceList[m_notNullSourceChannel]!!.getSurfaceTexture()
             }
         }
@@ -116,6 +126,9 @@ class cViewSwitch(override val e_name: String, override val e_id: Int,
             return true
         }
         var nowChannel = getChannelIndex(channel)
+        if(nowChannel == -1){
+            return false
+        }
 
         if(nowChannel < m_sourceList.size){
             m_blackScreenMode = false
@@ -129,6 +142,7 @@ class cViewSwitch(override val e_name: String, override val e_id: Int,
                 setBlackScreen()
                 return true
             }
+            //onTriggerRenderCallback(null)
             m_sourceList[m_nowChannel]!!.triggerRenderSubscribe(::onTriggerRenderCallback)
             onTriggerRenderCallback(getSurfaceTexture())
             invoke()
@@ -162,7 +176,7 @@ class cViewSwitch(override val e_name: String, override val e_id: Int,
     }
 
     fun getChannelIndex(channel: Int): Int {
-        var nowChannel = m_notNullSourceChannel
+        var nowChannel = -1
         for (i in 0 until m_channels.size) {
             if (m_channels[i] == channel) {
                 nowChannel = i
