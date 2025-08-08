@@ -42,6 +42,9 @@ import com.auo.flex_compositor.pParse.cFlexSwitch
 import com.auo.flex_compositor.pParse.cFlexVirtualDisplay
 import com.auo.flex_compositor.pParse.cParseFlexCompositor
 import com.auo.flex_compositor.pParse.eElementType
+import com.auo.flex_compositor.pParse.ePiPType
+import com.auo.flex_compositor.pParse.muxParm
+import com.auo.flex_compositor.pSink.cDisplayPiPChildView
 import com.auo.flex_compositor.pSink.cDisplayView
 import com.auo.flex_compositor.pSource.cVirtualDisplay
 import com.auo.flex_compositor.pView.cContolButton
@@ -194,21 +197,22 @@ class BootStartService : Service() {
         m_Muxs.addAll(muxs)
     }
     private fun generateSwitch(elements: MutableList<cElementType>, switches: MutableList<cFlexSwitch>,
-                               displayview: MutableList<cDisplayView>, encoders: MutableList<cMediaEncoder>) : MutableList<cViewSwitch?>{
+                               displayviews: MutableList<cDisplayView>, encoders: MutableList<cMediaEncoder>
+                               ) : MutableList<cViewSwitch?>{
         val out_switches =  mutableListOf<cViewSwitch?>()
         for (switch in switches) {
-            if(switch.srcParm.size != 0){
+            if(switch.srcParms.size != 0){
                 val element: cElementType? = findSink(switch.sink, elements)
                 if(element != null) {
                     when {
                         element.type == eElementType.DISPLAYVIEW -> {
                             val Downcasting = element as cFlexDisplayView
                             val switchesParm = mutableListOf<cViewSwitch.viewSwitchParm>()
-                            for (j in 0 until switch.srcParm.size) {
-                                val sourceID = switch.srcParm[j].source
+                            for (j in 0 until switch.srcParms.size) {
+                                val sourceID = switch.srcParms[j].source
                                 val sourceElement = findSource(sourceID)
-                                val switchParm = cViewSwitch.viewSwitchParm(sourceElement, switch.srcParm[j].channel,
-                                    switch.srcParm[j].crop_texture,switch.srcParm[j].touchmapping,switch.srcParm[j].dewarpParameters)
+                                val switchParm = cViewSwitch.viewSwitchParm(sourceElement, switch.srcParms[j].channel,
+                                    switch.srcParms[j].crop_texture,switch.srcParms[j].touchmapping,switch.srcParms[j].dewarpParameters)
                                 switchesParm.add(switchParm)
                             }
                             if(switchesParm.size > 0){
@@ -217,6 +221,7 @@ class BootStartService : Service() {
                                     switch.id, switchesParm
                                 )
                                 val firstChannel = viewSwitch.getChannelIndex(switchesParm[0].channel)
+
                                 val displayView = cDisplayView(
                                     this,
                                     (Downcasting.name+"_switch_${switch.id}"),
@@ -230,41 +235,11 @@ class BootStartService : Service() {
                                 )
                                 createControlButton(viewSwitch, Downcasting.displayid)
                                 out_switches.add(viewSwitch)
-                                displayview.add(displayView)
+                                displayviews.add(displayView)
                             }
                         }
                         element.type == eElementType.STREAMENCODER-> {
-                            val Downcasting = element as cFlexEncoder
-                            val switchesParm = mutableListOf<cViewSwitch.viewSwitchParm>()
-                            for (j in 0 until switch.srcParm.size) {
-                                val sourceID = switch.srcParm[j].source
-                                val sourceElement = findSource(sourceID)
-                                val switchParm = cViewSwitch.viewSwitchParm(sourceElement, switch.srcParm[j].channel,
-                                    switch.srcParm[j].crop_texture,switch.srcParm[j].touchmapping,switch.srcParm[j].dewarpParameters)
-                                switchesParm.add(switchParm)
-                            }
-
-                            if(switchesParm.size > 0){
-                                val viewSwitch: cViewSwitch = cViewSwitch(
-                                    switch.name,
-                                    switch.id, switchesParm
-                                )
-                                val firstChannel = viewSwitch.getChannelIndex(switchesParm[0].channel)
-                                val encoder = cMediaEncoder(
-                                    this,
-                                    (Downcasting.name+"_switch_${switch.id}"),
-                                    Downcasting.id,
-                                    viewSwitch,
-                                    Downcasting.size,
-                                    switchesParm[0].crop_texture,
-                                    switchesParm[0].touchMapping,
-                                    Downcasting.serverPort.toInt(),
-                                    switchesParm[0].dewarpParameters,
-                                    Downcasting.codecType
-                                )
-                                out_switches.add(viewSwitch)
-                                encoders.add(encoder)
-                            }
+                            generateEncoderOfSwitch(out_switches,  element, switch, encoders)
                         }
                     }
                 }
@@ -276,12 +251,172 @@ class BootStartService : Service() {
         return out_switches
     }
 
+    private fun generateEncoderOfSwitch(switches: MutableList<cViewSwitch?>, element: cElementType,
+                                        switch: cFlexSwitch, encoders: MutableList<cMediaEncoder>){
+        val Downcasting = element as cFlexEncoder
+        val switchesParm = mutableListOf<cViewSwitch.viewSwitchParm>()
+        for (j in 0 until switch.srcParms.size) {
+            val sourceID = switch.srcParms[j].source
+            val sourceElement = findSource(sourceID)
+            val switchParm = cViewSwitch.viewSwitchParm(sourceElement, switch.srcParms[j].channel,
+                switch.srcParms[j].crop_texture,switch.srcParms[j].touchmapping,switch.srcParms[j].dewarpParameters)
+            switchesParm.add(switchParm)
+        }
+
+        if(switchesParm.size > 0){
+            val viewSwitch: cViewSwitch = cViewSwitch(
+                switch.name,
+                switch.id, switchesParm
+            )
+            val firstChannel = viewSwitch.getChannelIndex(switchesParm[0].channel)
+            val encoder = cMediaEncoder(
+                this,
+                (Downcasting.name+"_switch_${switch.id}"),
+                Downcasting.id,
+                viewSwitch,
+                Downcasting.size,
+                switchesParm[0].crop_texture,
+                switchesParm[0].touchMapping,
+                Downcasting.serverPort.toInt(),
+                switchesParm[0].dewarpParameters,
+                Downcasting.codecType
+            )
+            switches.add(viewSwitch)
+            encoders.add(encoder)
+        }
+    }
+
+    data class genSwitchOfMux(
+        val allSwitches: List<cViewSwitch?>,
+        val parentPiPSwitch: cViewSwitch?,
+        val parentPiPView: cDisplayView?,
+        val childPiPSwitches: List<cViewSwitch>,
+        val childPiPViews: List<cDisplayPiPChildView>,
+    )
+
+    private fun generateSwitchOfMux(elements: MutableList<cElementType>, mux: cFlexMux,
+                                    displayviews: MutableList<cDisplayView>, encoders: MutableList<cMediaEncoder>
+    ) : genSwitchOfMux {
+        val out_switches =  mutableListOf<cViewSwitch?>()
+        var parentPiPSwitch : cViewSwitch? = null
+        val out_childPiPSwitches =  mutableListOf<cViewSwitch>()
+        var out_displayPiPChildViews = mutableListOf<cDisplayPiPChildView>()
+        var out_parentPiPView : cDisplayView? = null
+        val muxParms = mux.muxParms
+        for (muxParm in muxParms) {
+            val switch = muxParm.switch
+            val pipType = muxParm.pipType
+            val defaultChannel = muxParm.default_channel
+            if(switch.srcParms.size != 0){
+                val element: cElementType? = findSink(switch.sink, elements)
+                if(element != null) {
+                    when {
+                        element.type == eElementType.DISPLAYVIEW -> {
+                            val Downcasting = element as cFlexDisplayView
+                            val switchesParm = mutableListOf<cViewSwitch.viewSwitchParm>()
+                            for (j in 0 until switch.srcParms.size) {
+                                val sourceID = switch.srcParms[j].source
+                                val sourceElement = findSource(sourceID)
+                                val switchParm = cViewSwitch.viewSwitchParm(sourceElement, switch.srcParms[j].channel,
+                                    switch.srcParms[j].crop_texture,switch.srcParms[j].touchmapping,switch.srcParms[j].dewarpParameters)
+                                switchesParm.add(switchParm)
+                            }
+                            if(switchesParm.size > 0){
+                                val viewSwitch: cViewSwitch
+                                if(defaultChannel != -1) {
+                                        viewSwitch = cViewSwitch(
+                                        switch.name,
+                                        switch.id, switchesParm, defaultChannel
+                                    )
+                                }
+                                else{
+                                        viewSwitch = cViewSwitch(
+                                        switch.name,
+                                        switch.id, switchesParm
+                                    )
+                                }
+                                val firstChannel = viewSwitch.getChannelIndex(switchesParm[0].channel)
+                                val displayView : cDisplayView
+                                if(pipType == ePiPType.PARENT){
+                                    displayView = cDisplayView(
+                                        this,
+                                        (Downcasting.name + "_switch_${switch.id}"),
+                                        Downcasting.id,
+                                        viewSwitch,
+                                        Downcasting.displayid,
+                                        switch.posSize,
+                                        switchesParm[0].crop_texture,
+                                        switchesParm[0].touchMapping,
+                                        switchesParm[0].dewarpParameters
+                                    )
+                                    parentPiPSwitch = viewSwitch
+                                    out_parentPiPView = displayView
+                                }
+                                else if(pipType == ePiPType.CHILD){
+                                    displayView = cDisplayPiPChildView(
+                                        this,
+                                        (Downcasting.name+"_switch_${switch.id}"),
+                                        Downcasting.id,
+                                        viewSwitch,
+                                        Downcasting.displayid,
+                                        switch.posSize,
+                                        switchesParm[0].crop_texture,
+                                        switchesParm[0].touchMapping,
+                                        switchesParm[0].dewarpParameters
+                                    )
+                                    out_displayPiPChildViews.add(displayView)
+                                    out_childPiPSwitches.add(viewSwitch)
+                                }
+                                else {
+                                    displayView = cDisplayView(
+                                        this,
+                                        (Downcasting.name + "_switch_${switch.id}"),
+                                        Downcasting.id,
+                                        viewSwitch,
+                                        Downcasting.displayid,
+                                        switch.posSize,
+                                        switchesParm[0].crop_texture,
+                                        switchesParm[0].touchMapping,
+                                        switchesParm[0].dewarpParameters
+                                    )
+                                    createControlButton(viewSwitch, Downcasting.displayid)
+                                }
+
+                                out_switches.add(viewSwitch)
+                                displayviews.add(displayView)
+                            }
+                        }
+                        element.type == eElementType.STREAMENCODER-> {
+                            generateEncoderOfSwitch(out_switches,  element, switch, encoders)
+                        }
+                    }
+                }
+                else{
+                    out_switches.add(null)
+                }
+            }
+        }
+        return genSwitchOfMux(out_switches, parentPiPSwitch, out_parentPiPView, out_childPiPSwitches, out_displayPiPChildViews)
+    }
+
     private fun generateMux(elements: MutableList<cElementType>, muxs: MutableList<cFlexMux>,
-                            displayview: MutableList<cDisplayView>, encoders: MutableList<cMediaEncoder>) : MutableList<cViewMux>{
+                            displayviews: MutableList<cDisplayView>, encoders: MutableList<cMediaEncoder>) : MutableList<cViewMux>{
         val out_muxs =  mutableListOf<cViewMux>()
         for (mux in muxs) {
-            val switches = generateSwitch(elements, mux.switch, displayview, encoders)
-            val viewMux: cViewMux = cViewMux(mux.name, mux.id, switches, mux.channels)
+            val channels: MutableList<Int> = mutableListOf<Int>()
+            for (muxParm in mux.muxParms) {
+                channels.add(muxParm.channel)
+            }
+            val genSwitch : genSwitchOfMux = generateSwitchOfMux(elements, mux, displayviews, encoders)
+            val viewMux: cViewMux = cViewMux(mux.name, mux.id, genSwitch.allSwitches, channels)
+            if(genSwitch.parentPiPSwitch != null && genSwitch.parentPiPView != null){
+                viewMux.setPiP_parentSwitch(genSwitch.parentPiPSwitch)
+                createControlButton(genSwitch.parentPiPSwitch, genSwitch.childPiPSwitches, genSwitch.parentPiPView.getDisplayID())
+            }
+            for(view in genSwitch.childPiPViews){
+                view.setMux(viewMux)
+            }
+
             out_muxs.add(viewMux)
         }
         return out_muxs
@@ -313,6 +448,29 @@ class BootStartService : Service() {
                     val clickevent: () -> Unit = {
                         m_CmdNotify?.sendBackHome(switch)
                         switch.switchToDefaultChannel()
+                    }
+                    controlButton.clickEventSubscribe(clickevent)
+                    m_ControlButoon.add(controlButton)
+                    break
+                }
+            }
+        }
+    }
+
+    private fun createControlButton(parentSwitch: cViewSwitch, childSwitches: List<cViewSwitch>, displayID: Int){
+        val display_manager = getSystemService(DISPLAY_SERVICE) as DisplayManager
+
+        for(display in display_manager.displays) {
+            if (display !== null) {
+                // flag = 4 : Private Display
+                if (displayID == display.displayId && (display.flags == 131 || display.flags == 139)) {
+                    val controlButton = cContolButton(this, display)
+                    val clickevent: () -> Unit = {
+                        m_CmdNotify?.sendBackHome(parentSwitch)
+                        parentSwitch.switchToDefaultChannel()
+                        for(switch in childSwitches){
+                            switch.switchToDefaultChannel()
+                        }
                     }
                     controlButton.clickEventSubscribe(clickevent)
                     m_ControlButoon.add(controlButton)

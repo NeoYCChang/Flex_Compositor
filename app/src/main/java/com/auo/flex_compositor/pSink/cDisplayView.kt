@@ -46,7 +46,7 @@ import com.auo.flex_compositor.pSource.cVirtualDisplay
 
 
 
-class cDisplayView(context: Context, override val e_name: String, override val e_id: Int, source: iSurfaceSource, displayID: Int,
+open class cDisplayView(context: Context, override val e_name: String, override val e_id: Int, source: iSurfaceSource, displayID: Int,
                    posSize: vPos_Size, cropTextureArea: vCropTextureArea, touchMapping: vTouchMapping?, dewarpParameters: deWarp_Parameters?
 ) :
 SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools {
@@ -313,7 +313,7 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
 
     //Remove the DisplayView after pressing and holding the top-left corner of
     // the DisplayView for 5 seconds
-    private fun detectLongPress(motionEvent: MotionEvent){
+    protected fun detectLongPress(motionEvent: MotionEvent){
         when (motionEvent.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 val x = motionEvent.getX(0)
