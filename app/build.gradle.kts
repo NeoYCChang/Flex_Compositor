@@ -35,6 +35,9 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            buildConfigField("String", "TARGET_PLATFORM", "\"DEBUG\"")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
@@ -44,9 +47,11 @@ android {
         }
         create("rcar_zdc") {
             signingConfig = signingConfigs.getByName("rcar_zdc")
+            buildConfigField("String", "TARGET_PLATFORM", "\"RCAR_ZDC\"")
         }
         create("sa8295") {
             signingConfig = signingConfigs.getByName("sa8295")
+            buildConfigField("String", "TARGET_PLATFORM", "\"SA8295\"")
         }
     }
     compileOptions {
@@ -58,6 +63,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

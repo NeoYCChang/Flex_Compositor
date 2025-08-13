@@ -54,18 +54,18 @@ class cContolButton (context: Context, display: Display) : ImageButton(context) 
         display.getRealSize(size)
         m_display_width = size.x
         m_display_height = size.y
-        m_layoutParmas = newLayoutParams()
+        m_layoutParmas = newLayoutParams(dpToPx(context, 48))
         val displayContext: Context = context.createDisplayContext(m_display)
         m_window_manager = displayContext.getSystemService(WINDOW_SERVICE) as WindowManager
         m_window_manager!!.addView(this, m_layoutParmas)
     }
 
-    private fun newLayoutParams(): WindowManager.LayoutParams {
+    private fun newLayoutParams(size: Int): WindowManager.LayoutParams {
         val params = WindowManager.LayoutParams()
         params.x = 0
         params.y = 0
-        params.width = 48
-        params.height = 48
+        params.width = size
+        params.height = size
         params.flags =
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
@@ -79,6 +79,10 @@ class cContolButton (context: Context, display: Display) : ImageButton(context) 
         params.gravity = Gravity.START or Gravity.TOP
         params.format = PixelFormat.TRANSLUCENT
         return params
+    }
+
+    fun dpToPx(context: Context, dp: Int): Int {
+        return (dp * context.resources.displayMetrics.density).toInt()
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {

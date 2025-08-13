@@ -2,6 +2,7 @@ package com.auo.flex_compositor.pCMDJson
 
 import android.util.Log
 import com.auo.flex_compositor.pCMDJson.cCmdReqRes.callbackCmd
+import com.auo.flex_compositor.pFilter.cViewMux
 import com.auo.flex_compositor.pFilter.cViewSwitch
 import java.io.IOException
 import java.io.InputStream
@@ -9,12 +10,15 @@ import java.io.OutputStream
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketTimeoutException
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 class cCmdNotify: Thread() {
     private val m_tag = "cCmdNotify"
     private var m_callbackCmd: callbackCmd? = null
     private var m_serverSocket: ServerSocket? = null
     private val m_clients: MutableList<Socket> = mutableListOf<Socket>()
+    private val m_sendDataLock = ReentrantLock()
 
     override fun run() {
         super.run()
@@ -69,14 +73,24 @@ class cCmdNotify: Thread() {
         }
     }
 
-    fun sendBackHome(cViewSwitch: cViewSwitch) {
+    fun sendBackHome(viewSwitch: cViewSwitch) {
+        sendBackHome("switch", viewSwitch.e_id)
+    }
+
+    fun sendBackHome(viewMux: cViewMux) {
+        sendBackHome("mux", viewMux.e_id)
+    }
+
+    private fun sendBackHome(obj: String, id: Int) {
         Thread {
-            m_clients.removeIf { it.isClosed }
-            val msg = CmdProtocol.notifyMessage("switch", cViewSwitch.e_id).toByteArray()
-            Log.d(m_tag, "sendBackHome ${m_clients.count()}")
-            for(client in m_clients){
-                val output = client.getOutputStream()
-                output.write(msg)
+            m_sendDataLock.withLock {
+                m_clients.removeIf { it.isClosed }
+                val msg = CmdProtocol.notifyMessage(obj, id).toByteArray()
+                Log.d(m_tag, "sendBackHome ${m_clients.count()}")
+                for (client in m_clients) {
+                    val output = client.getOutputStream()
+                    output.write(msg)
+                }
             }
         }.start()
     }

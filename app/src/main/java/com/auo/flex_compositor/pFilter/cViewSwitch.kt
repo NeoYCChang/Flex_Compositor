@@ -127,6 +127,7 @@ class cViewSwitch(override val e_name: String, override val e_id: Int,
 
     fun switchToChannel(channel: Int): Boolean{
         Log.d(m_tag, "$channel ${m_sourceList.size}")
+        //If channel is set 0, screen set to black.
         if(channel == 0){
             setBlackScreen()
             return true

@@ -73,9 +73,12 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
     )
     private var m_cropTextureArea = cropTextureArea
     private var m_touchMapping = touchMapping
-    private val m_posSize: vPos_Size =  posSize
-    private var m_window_manager: WindowManager? = null
-    private var m_layoutParmas: WindowManager.LayoutParams? = null
+    protected val m_posSize: vPos_Size =  posSize
+    protected var m_display_width = 0
+    protected var m_display_height = 0
+    protected var m_window_manager: WindowManager? = null
+    protected var m_layoutParmas: WindowManager.LayoutParams? = null
+    protected var m_mainView: View? = null
 
     // Detect Long Press
     private val m_longPressHandler = Handler(Looper.getMainLooper())
@@ -84,20 +87,31 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
 
     init {
         holder.addCallback(this)
-        val display_manager = context.getSystemService(DISPLAY_SERVICE) as DisplayManager
+        val display_manager = m_context.getSystemService(DISPLAY_SERVICE) as DisplayManager
 
         val display: Display? = display_manager.getDisplay(m_displayID)
         if (display !== null) {
             Log.d(m_tag, "display flag: ${display.flags}")
             // flag = 4 : Private Display
             if(display.flags != 132) {
+                var size = Point(0,0)
+                display.getRealSize(size)
+                m_display_width = size.x
+                m_display_height = size.y
+
                 m_layoutParmas = newLayoutParams(m_posSize)
-                val displayContext: Context = context.createDisplayContext(display)
+                val displayContext: Context = m_context.createDisplayContext(display)
                 m_window_manager = displayContext.getSystemService(WINDOW_SERVICE) as WindowManager
-                m_window_manager!!.addView(this, m_layoutParmas)
+                m_window_manager!!.addView(viewInit(), m_layoutParmas)
             }
         }
     }
+
+    protected open fun viewInit(): View{
+        m_mainView = this
+        return this
+    }
+
 
     private fun newLayoutParams(posSize: vPos_Size): WindowManager.LayoutParams {
         val params = WindowManager.LayoutParams()
@@ -125,7 +139,7 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
             m_layoutParmas!!.x = m_posSize.x
             m_layoutParmas!!.y = m_posSize.y
 
-            m_window_manager?.updateViewLayout(this, m_layoutParmas)
+            m_window_manager?.updateViewLayout(m_mainView, m_layoutParmas)
         }
         //this.visibility = View.VISIBLE
     }
@@ -135,7 +149,7 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
             m_layoutParmas?.x = -m_posSize.width
             m_layoutParmas?.y = -m_posSize.height
 
-            m_window_manager?.updateViewLayout(this, m_layoutParmas)
+            m_window_manager?.updateViewLayout(m_mainView, m_layoutParmas)
         }
         //this.visibility = View.GONE
     }
@@ -270,7 +284,7 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
                 m_EGLRender?.release()
                 m_EGLRender = null
                 Handler(Looper.getMainLooper()).post {
-                    m_window_manager?.removeViewImmediate(this)
+                    m_window_manager?.removeViewImmediate(m_mainView)
                 }
                 //m_window_manager?.removeView(this)
                 m_isDestroyed = !m_isDestroyed

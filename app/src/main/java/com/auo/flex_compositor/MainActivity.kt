@@ -63,7 +63,20 @@ class MainActivity : ComponentActivity() {
 
         val bootStartService = Intent(this, BootStartService::class.java)
         startForegroundService(bootStartService)
-
+        when (BuildConfig.TARGET_PLATFORM) {
+            "DEBUG" ->{
+                Log.d("MainActivity", "DEBUG")
+            }
+            "RCAR_ZDC" -> {
+                Log.d("MainActivity", "RCAR_ZDC")
+            }
+            "SA8295" -> {
+                Log.d("MainActivity", "SA8295")
+            }
+            else -> {
+                Log.d("MainActivity", "else")
+            }
+        }
         enableEdgeToEdge()
         setContent {
             Flex_CompositorTheme {
