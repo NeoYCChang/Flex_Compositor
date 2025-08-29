@@ -121,8 +121,7 @@ data class cFlexSwitch(
 
 open class muxParm(
     open var switch: cFlexSwitch,
-    open var channel: Int,
-    open var default_channel: Int, )
+    open var channel: Int)
 
 open class cFlexMux(
     override var id: Int,
@@ -132,8 +131,7 @@ open class cFlexMux(
     override var source: MutableList<Int>?,
     override var sink: MutableList<Int>?,
     open var muxParms: MutableList<muxParm>,
-    open var channel: Int,
-    open var default_channel: Int
+    open var channel: Int
 ) : cElementType(id, name, type, size, source, sink)
 
 data class cFlexPiP(
@@ -144,10 +142,9 @@ data class cFlexPiP(
     override var source: MutableList<Int>?,
     override var sink: MutableList<Int>?,
     override var muxParms: MutableList<muxParm>,
-    override var channel: Int,
-    override var default_channel: Int,
+    override var channel: Int
 ) : cFlexMux(id, name, type, size, source, sink,
-    muxParms, channel, default_channel)
+    muxParms, channel)
 
 enum class SpecialID(val id: Int) {
     DUMMY(-10)
@@ -854,7 +851,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
             // Use a new mux(sinkOption.mux), or look for an existing mux with the same ID in the group(m_muxs).
             now_mux = managerMuxs(m_muxs, sinkOption.mux!!)
             // Generate a new switch based on the mux.
-            val (s, p) = managerSwitchOfMux(now_mux, sinkOption.mux!!.channel, sinkOption.mux!!.default_channel)
+            val (s, p) = managerSwitchOfMux(now_mux, sinkOption.mux!!.channel)
             switch = s
             srcParm = p
         }
@@ -862,7 +859,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
             // Use a new mux(sinkOption.pip), or look for an existing mux with the same ID in the group(m_pips).
             now_mux = managerMuxs(m_pips, sinkOption.pip!!)
             // Generate a new switch based on the mux.
-            val (s, p) = managerSwitchOfMux(now_mux, sinkOption.pip!!.channel, sinkOption.pip!!.default_channel)
+            val (s, p) = managerSwitchOfMux(now_mux, sinkOption.pip!!.channel)
             switch = s
             srcParm = p
         }
@@ -900,7 +897,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
             // Use a new mux(sinkOption.mux), or look for an existing mux with the same ID in the group(m_muxs).
             now_mux = managerMuxs(m_muxs, sinkOption.mux!!)
             // Generate a new switch based on the mux.
-            val (s, p) = managerSwitchOfMux(now_mux, sinkOption.mux!!.channel, sinkOption.mux!!.default_channel)
+            val (s, p) = managerSwitchOfMux(now_mux, sinkOption.mux!!.channel)
             switch = s
             srcParm = p
         }
@@ -908,7 +905,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
             // Use a new mux(sinkOption.pip), or look for an existing mux with the same ID in the group(m_pips).
             now_mux = managerMuxs(m_pips, sinkOption.pip!!)
             // Generate a new switch based on the mux.
-            val (s, p) = managerSwitchOfMux(now_mux, sinkOption.pip!!.channel, sinkOption.pip!!.default_channel)
+            val (s, p) = managerSwitchOfMux(now_mux, sinkOption.pip!!.channel)
             switch = s
             srcParm = p
         }
@@ -938,7 +935,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
             // Use a new mux(sinkOption.mux), or look for an existing mux with the same ID in the group(m_muxs).
             now_mux = managerMuxs(m_muxs, sinkOption.mux!!)
             // Generate a new switch based on the mux.
-            val (s, p) = managerSwitchOfMux(now_mux, sinkOption.mux!!.channel, sinkOption.mux!!.default_channel)
+            val (s, p) = managerSwitchOfMux(now_mux, sinkOption.mux!!.channel)
             switch = s
             srcParm = p
         }
@@ -946,7 +943,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
             // Use a new mux(sinkOption.pip), or look for an existing mux with the same ID in the group(m_pips).
             now_mux = managerMuxs(m_pips, sinkOption.pip!!)
             // Generate a new switch based on the mux.
-            val (s, p) = managerSwitchOfMux(now_mux, sinkOption.pip!!.channel, sinkOption.pip!!.default_channel)
+            val (s, p) = managerSwitchOfMux(now_mux, sinkOption.pip!!.channel)
             switch = s
             srcParm = p
         }
@@ -1006,7 +1003,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
     }
 
     // Create a new switch in mux. All switches in the same mux share a mutableListOf<switchSrcParam>.
-    private fun managerSwitchOfMux(mux: cFlexMux, addChannel: Int, defaultChannel: Int) : Pair<cFlexSwitch, switchSrcParm>{
+    private fun managerSwitchOfMux(mux: cFlexMux, addChannel: Int) : Pair<cFlexSwitch, switchSrcParm>{
         val switch_size = mux.muxParms.size
         val switch : cFlexSwitch
         val srcParm: switchSrcParm
@@ -1018,7 +1015,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
             switch = cFlexSwitch(-1, "switch_$switch_size", eElementType.SWITCH,
                 mutableListOf<switchSrcParm>(srcParm), -1 , vPos_Size(0,0,1,1)
             )
-            val muxparm: muxParm = muxParm(switch, addChannel, defaultChannel)
+            val muxparm: muxParm = muxParm(switch, addChannel)
             mux.muxParms.add(muxparm)
         }
         else{
@@ -1030,7 +1027,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
             mux.muxParms[0].switch.srcParms.add(srcParm)
             switch = cFlexSwitch(-1, "switch_$switch_size", eElementType.SWITCH,
                 mux.muxParms[0].switch.srcParms, -1 , vPos_Size(0,0,1,1))
-            val muxparm: muxParm = muxParm(switch, addChannel, defaultChannel)
+            val muxparm: muxParm = muxParm(switch, addChannel)
             mux.muxParms.add(muxparm)
         }
         return Pair(switch, srcParm)
@@ -1140,21 +1137,13 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
         if(result_split.size >= 2){
             val id = result_split[0].trim().toIntOrNull()
             val channel = result_split[1].trim().toIntOrNull()
-            var defaultChannel = -1
-            if(result_split.size >=3) {
-                val defchannel = result_split[2].trim().toIntOrNull()
-                if(defchannel != null){
-                    defaultChannel = defchannel
-                }
-            }
 
             if (id != null && channel != null) {
                 if(sinkOption.mux == null) {
                     sinkOption.mux = cFlexMux(
                         id, "mux_$id", eElementType.MUX,
                         vSize(0, 0), null, null, mutableListOf<muxParm>(),
-                        channel, defaultChannel
-                    )
+                        channel)
                 }
             }
         }
@@ -1167,21 +1156,13 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
         if(result_split.size >= 2){
             val id = result_split[0].trim().toIntOrNull()
             val channel = result_split[1].trim().toIntOrNull()
-            var defaultChannel = -1
-            if(result_split.size >=3) {
-                val defchannel = result_split[2].trim().toIntOrNull()
-                if(defchannel != null){
-                    defaultChannel = defchannel
-                }
-            }
 
             if (id != null && channel != null) {
                 if(sinkOption.pip == null) {
                     sinkOption.pip = cFlexPiP(
                         id, "mux_$id", eElementType.PIP,
                         vSize(0, 0), null, null, mutableListOf<muxParm>(),
-                        channel, defaultChannel
-                    )
+                        channel)
                 }
             }
         }

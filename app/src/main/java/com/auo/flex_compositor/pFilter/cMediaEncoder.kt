@@ -60,7 +60,7 @@ class cMediaEncoder(context: Context, override val e_name: String, override val 
 
     private var eglThread: EGLThread? = null
 
-    private val SCREEN_FRAME_RATE: Int = 60
+    private val SCREEN_FRAME_RATE: Int = 30
     private val SCREEN_FRAME_INTERVAL: Int = 1
     private val SOCKET_TIME_OUT: Long = 10000
     private val m_codecType: eCodecType = codecType

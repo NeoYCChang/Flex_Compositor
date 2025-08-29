@@ -2,7 +2,9 @@ package com.auo.flex_compositor
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.view.MotionEvent
 import android.view.WindowInsets
@@ -60,6 +62,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
 //        val contentManager: cContentManager = cContentManager(this)
+
+//        val intent = Intent(
+//            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+//            Uri.parse("package:${packageName}")
+//        )
+//        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+//        startActivity(intent)
 
         val bootStartService = Intent(this, BootStartService::class.java)
         startForegroundService(bootStartService)

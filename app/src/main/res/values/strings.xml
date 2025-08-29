@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Flex_Compositor</string>
+    <string name="title_activity_pad">PadActivity</string>
+    <string name="title_activity_security">SecurityActivity</string>
 </resources>

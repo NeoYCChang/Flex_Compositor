@@ -149,10 +149,10 @@ class cViewSwitch(override val e_name: String, override val e_id: Int,
                 setBlackScreen()
                 return true
             }
+            invoke()
             //onTriggerRenderCallback(null)
             m_sourceList[m_nowChannelIndex]!!.triggerRenderSubscribe(::onTriggerRenderCallback)
             onTriggerRenderCallback(getSurfaceTexture())
-            invoke()
             return true
         }
         return false

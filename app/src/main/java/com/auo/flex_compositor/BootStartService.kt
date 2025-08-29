@@ -114,8 +114,19 @@ class BootStartService : Service() {
     }
 
     private fun syncSystemTime(){
-        val ntpTimeHelper: NtpTimeHelper = NtpTimeHelper(this)
-        ntpTimeHelper.syncSystemTimeWithNtp()
+        when (BuildConfig.TARGET_PLATFORM) {
+            "DEBUG" ->{
+                Log.d(m_tag, "Don't sync  system time")
+            }
+            "RCAR_ZDC", "SA8295" -> {
+                val ntpTimeHelper: NtpTimeHelper = NtpTimeHelper(this)
+                ntpTimeHelper.syncSystemTimeWithNtp()
+            }
+            else -> {
+                Log.d(m_tag, "Don't sync  system time")
+            }
+        }
+
     }
 
     private fun generateElements(){
@@ -306,7 +317,7 @@ class BootStartService : Service() {
         val muxParms = mux.muxParms
         for (muxParm in muxParms) {
             val switch = muxParm.switch
-            val defaultChannel = muxParm.default_channel
+            val defaultChannel = muxParm.channel
             if(switch.srcParms.size != 0){
                 val element: cElementType? = findSink(switch.sink, elements)
                 if(element != null) {
@@ -385,7 +396,7 @@ class BootStartService : Service() {
         var pipType = ePiPType.PARENT
         for (muxParm in muxParms) {
             val switch = muxParm.switch
-            val defaultChannel = muxParm.default_channel
+            val defaultChannel = muxParm.channel
             if(switch.srcParms.size != 0){
                 val element: cElementType? = findSink(switch.sink, elements)
                 if(element != null) {

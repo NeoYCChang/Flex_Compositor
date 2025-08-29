@@ -29,6 +29,9 @@ import com.auo.flex_compositor.pView.cSurfaceTexture
 import java.lang.reflect.Method
 import java.util.concurrent.locks.ReentrantLock
 import android.opengl.EGLContext
+import android.view.Display
+import com.auo.flex_compositor.BuildConfig
+import com.auo.flex_compositor.pNtpTimeHelper.NtpTimeHelper
 import kotlin.concurrent.withLock
 
 class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurfaceSource {
@@ -83,6 +86,7 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
         }
 
         val display_manager = context.getSystemService(DISPLAY_SERVICE) as DisplayManager
+
         @SuppressLint("WrongConstant")
         m_virtual_display = display_manager.createVirtualDisplay(
             name,
@@ -90,60 +94,23 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
             size.height,
             240,
             m_Surface,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_SECURE or
-            0x100 or //virtual displays will always destroy their content on removal
-            0x400,  //Indicates that the display is trusted
+            getVirtualDisplayFlag(),
             virtualDisplayCallback,
             null
         )
         Log.d(m_tag, "Create a Virtual Display {displayId: ${m_virtual_display!!.display.displayId} textureid: $textureid  flag: ${m_virtual_display!!.display.flags}}")
-        val displayContext: Context = context.createDisplayContext(m_virtual_display!!.display)
+
         if(m_appName != null) {
-            val app_split = m_appName!!.split('/')
-            if(app_split.size == 2) {
-
-                m_package_name = app_split[0]
-                val activity_path = app_split[1]
-                stopAppByForce(context, m_package_name)
-//                try {
-//                    val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "am force-stop ${m_package_name}"))
-//                    process.waitFor()
-//                } catch (e: Exception) {
-//                    e.printStackTrace()
-//                }
-//                val process = Runtime.getRuntime().exec("am force-stop ${m_package_name}")
-//                process.waitFor()
-                val intent = Intent()
-                intent.setFlags(Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT or Intent.FLAG_ACTIVITY_NEW_TASK)
-                val comp = ComponentName(m_package_name, activity_path)
-                intent.setComponent(comp);
-                val options: ActivityOptions = ActivityOptions.makeBasic()
-                // Try to resolve the intent to see if there's a matching activity
-                options.launchDisplayId =
-                    m_virtual_display!!.display.displayId  // Here, fill in the DisplayId you want to specify.
-                try {
-                    displayContext.startActivity(intent, options.toBundle())
-                    m_appisrunning = true
-                }catch (e: ActivityNotFoundException){
-                    Log.e(m_tag,"The APP ${m_appName} doesn't exist.")
-                }
-
-            }
+            val (packageName, isRunning) = startActivity(context, m_appName!!, m_virtual_display!!.display )
+            m_package_name = packageName
+            m_appisrunning = isRunning
         }
-        // Get the InputManager class
-        val inputManagerClass = Class.forName("android.hardware.input.InputManager")
-        // Get the Method object for the injectInputEvent method
-        m_injectInputEventMethod = inputManagerClass.getMethod(
-            "injectInputEvent",
-            InputEvent::class.java,
-            Int::class.javaPrimitiveType
-        )
-        // Get the MotionEvent class
-        val motionEventClass = MotionEvent::class.java
-        m_motionSetDisplayIdMethod = motionEventClass.getMethod(
-            "setDisplayId",
-            Int::class.java      // DisplayID
-        )
+
+        m_injectInputEventMethod = getInjectInputEventMethod()
+
+        m_motionSetDisplayIdMethod = getMotionSetDisplayIdMethod()
+
+        val displayContext: Context = context.createDisplayContext(m_virtual_display!!.display)
         m_inputManager = displayContext.getSystemService(INPUT_SERVICE) as InputManager
     }
 
@@ -167,6 +134,118 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
         m_virtual_display = null
     }
 
+    private fun getVirtualDisplayFlag(): Int{
+        val virtualDisplay_flag: Int
+        when (BuildConfig.TARGET_PLATFORM) {
+            "DEBUG" ->{
+                virtualDisplay_flag = DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION
+            }
+            "RCAR_ZDC", "SA8295" -> {
+                virtualDisplay_flag = DisplayManager.VIRTUAL_DISPLAY_FLAG_SECURE or
+                        0x100 or //virtual displays will always destroy their content on removal
+                        0x400  //Indicates that the display is trusted
+            }
+            else -> {
+                virtualDisplay_flag = DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION
+            }
+        }
+        return virtualDisplay_flag
+    }
+
+    private fun getInjectInputEventMethod(): Method?{
+        when (BuildConfig.TARGET_PLATFORM) {
+            "DEBUG" ->{
+                return null
+            }
+            "RCAR_ZDC", "SA8295" -> {
+                // Get the InputManager class
+                val inputManagerClass = Class.forName("android.hardware.input.InputManager")
+                // Get the Method object for the injectInputEvent method
+                return  inputManagerClass.getMethod(
+                    "injectInputEvent",
+                    InputEvent::class.java,
+                    Int::class.javaPrimitiveType
+                )
+            }
+            else -> {
+                return null
+            }
+        }
+    }
+
+    private fun getMotionSetDisplayIdMethod(): Method?{
+        when (BuildConfig.TARGET_PLATFORM) {
+            "DEBUG" ->{
+                return null
+            }
+            "RCAR_ZDC", "SA8295" -> {
+                // Get the MotionEvent class
+                val motionEventClass = MotionEvent::class.java
+                return motionEventClass.getMethod(
+                    "setDisplayId",
+                    Int::class.java      // DisplayID
+                )
+            }
+            else -> {
+                return null
+            }
+        }
+    }
+
+    private fun startActivity(context: Context, appName: String, display: Display): Pair<String, Boolean>{
+        var packageName: String = ""
+        var appisrunning: Boolean = false
+
+        when (BuildConfig.TARGET_PLATFORM) {
+            "DEBUG" ->{
+                Log.d(m_tag, "Don't startActivity")
+            }
+            "RCAR_ZDC", "SA8295" -> {
+                val spotifyMediaSource = ComponentName(
+                    "com.spotify.music",
+                    "com.spotify.automotive.medialibraryservice.AutomotiveMediaLibraryService"
+                )
+
+//                val car = Car.createCar(context)
+//                val carMediaManager = car.getCarManager(CarMediaManager::class.java)
+//
+//                val spotifyComponent = ComponentName(
+//                    "com.spotify.music",
+//                    "com.spotify.automotive.medialibraryservice.AutomotiveMediaLibraryService"
+//                )
+//
+//                carMediaManager.setMediaSource(spotifyComponent, CarMediaManager.MEDIA_SOURCE_MODE_PLAYBACK)
+
+                val displayContext: Context = context.createDisplayContext(display)
+                val app_split = appName.split('/')
+                if(app_split.size == 2) {
+                    packageName = app_split[0]
+                    val activity_path = app_split[1]
+                    stopAppByForce(context, packageName)
+                    val intent = Intent()
+                    intent.setFlags(Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    val comp = ComponentName(packageName, activity_path)
+                    intent.setComponent(comp);
+                    val options: ActivityOptions = ActivityOptions.makeBasic()
+                    // Try to resolve the intent to see if there's a matching activity
+                    options.launchDisplayId = display.displayId  // Here, fill in the DisplayId you want to specify.
+                    try {
+                        displayContext.startActivity(intent, options.toBundle())
+                        appisrunning = true
+                    }catch (e: ActivityNotFoundException){
+                        Log.e(m_tag,"The APP ${appName} doesn't exist.")
+                    }
+
+                }
+            }
+            else -> {
+                Log.d(m_tag, "Don't startActivity")
+            }
+        }
+
+        return Pair<String, Boolean>(packageName, appisrunning)
+    }
+
     /**
      * Injects a MotionEvent into the input event stream by setting its display ID and invoking the input manager.
      *
@@ -177,6 +256,20 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
      * @param displayid the ID of the display to associate the MotionEvent with, used to specify which screen the event is for.
      */
     override fun injectMotionEvent(cmotionEvent: cMotionEvent) {
+        when (BuildConfig.TARGET_PLATFORM) {
+            "DEBUG" ->{
+                Log.d(m_tag, "Don't inject motion event")
+            }
+            "RCAR_ZDC", "SA8295" -> {
+                injectMotionEvent_imp(cmotionEvent)
+            }
+            else -> {
+                Log.d(m_tag, "Don't inject motion even")
+            }
+        }
+    }
+
+    private fun injectMotionEvent_imp(cmotionEvent: cMotionEvent){
         m_MotionLock.withLock {
             if (m_motionSetDisplayIdMethod == null) {
                 // Get the MotionEvent class
@@ -408,13 +501,24 @@ class cVirtualDisplay(override val e_name: String,override val e_id: Int): iSurf
     }
 
     private fun stopAppByForce(context: Context?, packageName: String){
-        if(context != null) {
-            val activityManger: ActivityManager =
-                context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-            val method: Method = Class.forName("android.app.ActivityManager")
-                .getMethod("forceStopPackage", String::class.java)
-            method.invoke(activityManger, packageName)
+        when (BuildConfig.TARGET_PLATFORM) {
+            "DEBUG" ->{
+                Log.d(m_tag, "Don't stop App")
+            }
+            "RCAR_ZDC", "SA8295" -> {
+                if(context != null) {
+                    val activityManger: ActivityManager =
+                        context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                    val method: Method = Class.forName("android.app.ActivityManager")
+                        .getMethod("forceStopPackage", String::class.java)
+                    method.invoke(activityManger, packageName)
+                }
+            }
+            else -> {
+                Log.d(m_tag, "Don't stop App")
+            }
         }
+
     }
 
 }

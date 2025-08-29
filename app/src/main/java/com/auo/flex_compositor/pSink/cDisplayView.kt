@@ -125,7 +125,7 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            params.type = WindowManager.LayoutParams.TYPE_SYSTEM_DIALOG
+            params.type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         } else {
             params.type = WindowManager.LayoutParams.TYPE_PHONE
         }
