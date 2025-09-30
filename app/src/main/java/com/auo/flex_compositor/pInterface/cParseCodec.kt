@@ -89,6 +89,7 @@ class cParseH264Codec : iParseCodec{
                 offSet = 3
             }
             val type = data[offSet].toInt()
+//            Log.d("getBufferType", "getBufferType: ${type}")
 //            getFirstNonAUDNalType(data)
 
 //                Log.d("parseCodec", "${data[3]}")

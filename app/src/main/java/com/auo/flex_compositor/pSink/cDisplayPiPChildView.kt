@@ -61,6 +61,15 @@ class cDisplayPiPChildView(context: Context, override val e_name: String, overri
         m_pip = viewPiP
     }
 
+    /**
+     * Wrap the displayView and three buttons inside a FrameLayout,
+     * then add the FrameLayout to the screen.
+     *
+     * The three buttons are:
+     * - zoominButton: responsible for zooming in (enlarging) the displayView
+     * - closeButton: responsible for hiding the displayView
+     * - expandButton: responsible for popping out (showing) the hidden displayView
+     */
     override fun viewInit(): View {
         val container = FrameLayout(context).apply {
             setBackgroundColor(Color.TRANSPARENT)

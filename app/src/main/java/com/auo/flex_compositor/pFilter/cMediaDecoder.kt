@@ -1,9 +1,11 @@
 package com.auo.flex_compositor.pFilter
 
+import android.R.attr
 import android.content.Context
 import android.media.MediaCodec
 import android.media.MediaCodecList
 import android.media.MediaFormat
+import android.opengl.EGLContext
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
@@ -14,6 +16,7 @@ import com.auo.flex_compositor.pInterface.cMotionEvent
 import com.auo.flex_compositor.pInterface.cParseH264Codec
 import com.auo.flex_compositor.pInterface.cParseH265Codec
 import com.auo.flex_compositor.pInterface.eBufferType
+import com.auo.flex_compositor.pInterface.eCodecState
 import com.auo.flex_compositor.pInterface.eCodecType
 import com.auo.flex_compositor.pInterface.iParseCodec
 import com.auo.flex_compositor.pInterface.iSurfaceSource
@@ -23,10 +26,8 @@ import kotlinx.serialization.json.Json
 import java.io.IOException
 import java.net.URI
 import java.util.concurrent.locks.ReentrantLock
-import android.opengl.EGLContext
-import com.auo.flex_compositor.pInterface.eCodecState
-import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.withLock
+
 
 class cMediaDecoder(context: Context, override val e_name: String, override val e_id: Int, size: vSize, serverip: String, serverport: String
                     , codecType: eCodecType = eCodecType.H264): iSurfaceSource {
@@ -117,6 +118,22 @@ class cMediaDecoder(context: Context, override val e_name: String, override val 
                     //if (codecInfo.isHardwareAccelerated) {
                         availableDecoders.add(codecInfo.name)
                    // }
+
+                    val caps = codecInfo.getCapabilitiesForType(type)
+                    val videoCaps = caps.videoCapabilities
+
+                    if (videoCaps != null) {
+                        val minBitrate = videoCaps.bitrateRange.lower
+                        val maxBitrate = videoCaps.bitrateRange.upper
+                        val minFPS = videoCaps.supportedFrameRates.lower
+                        val maxFPS = videoCaps.supportedFrameRates.upper
+
+                        Log.d("CodecInfo", "Decoder: ${codecInfo.name}, Type: $type")
+                        Log.d("CodecInfo", "Bitrate range: $minBitrate - $maxBitrate")
+                        Log.d("CodecInfo", "FPS range: $minFPS - $maxFPS")
+                    } else {
+                        Log.d("CodecInfo", "Decoder: ${codecInfo.name}, Type: $type has no videoCapabilities")
+                    }
                 }
             }
         }

@@ -3,6 +3,8 @@ package com.auo.flex_compositor.pCMDJson
 import android.util.Log
 import kotlinx.serialization.json.Json
 import java.io.OutputStream
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 
 class CmdProtocol{
@@ -119,6 +121,45 @@ class CmdProtocol{
             output.write(replyMessage.toByteArray())
             output.flush()
         }
+
+        /**
+         * Reply to the client regarding the handling result of the Security Event.
+         */
+        fun replySecurityReply(jsonEvents: List<SecurityEvent>, output: OutputStream, isHandled: Boolean){
+            Thread {
+                val securityReplies: MutableList<SecurityReply> = mutableListOf<SecurityReply>()
+                for(event in jsonEvents){
+                    val securityReply: SecurityReply
+                    val now = LocalDateTime.now()
+                    val formatter = DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss")
+                    val nowTime = now.format(formatter)
+                    if(isHandled) {
+                        securityReply = SecurityReply(
+                            event.id, event.name,
+                            nowTime, SecurityEventStatus.Handled
+                        )
+                    }
+                    else{
+                        securityReply = SecurityReply(
+                            event.id, event.name,
+                            nowTime, SecurityEventStatus.Unhandled
+                        )
+                    }
+                    securityReplies.add(securityReply)
+                }
+                val jsonSecurityRPL: jsonResponse = jsonResponse(null,null,null, null, securityReplies)
+                val jsonMessage: String = Json.encodeToString<jsonResponse>(jsonSecurityRPL)
+                val checksum = calJsonCheckSum(jsonMessage)
+                val replyMessage: String = "Type:${HeaderType[1]}\r\n"+
+                        "Length:${jsonMessage.length}\r\n"+
+                        "Checksum:${checksum}\r\n"+
+                        "\r\n${jsonMessage}"
+
+                // Send response back as bytes
+                output.write(replyMessage.toByteArray())
+                output.flush()
+            }.start()
+        }
 //
 //        fun reply(output: OutputStream, statues: List<String>){
 //            val jsonresponse: jsonResponse = jsonResponse(statues)
@@ -186,7 +227,8 @@ interface JsonRoot {
 data class jsonRequest(
     val sourceSwitchers: List<SourceSwitcher>? = null,
     val sourceMuxs: List<SourceMux>? = null,
-    val getEnv: List<GetEnv>? = null
+    val getEnv: List<GetEnv>? = null,
+    val securityEvents: List<SecurityEvent>? = null
 ):JsonRoot
 
 @kotlinx.serialization.Serializable
@@ -194,7 +236,8 @@ data class jsonResponse(
     val status: String?,
     var sourceSwitchers: List<jsonStatus>? = null,
     var sourceMuxs: List<jsonStatus>? = null,
-    var getEnv: Map<String, String>? = null
+    var getEnv: Map<String, String>? = null,
+    val securityReplies: List<SecurityReply>? = null
 ):JsonRoot
 
 @kotlinx.serialization.Serializable
@@ -251,4 +294,26 @@ data class HomeEvent(
 @kotlinx.serialization.Serializable
 data class GetEnv(
     val obj: String? = null
+)
+
+@kotlinx.serialization.Serializable
+enum class SecurityEventStatus {
+    Handled,
+    Unhandled
+}
+
+@kotlinx.serialization.Serializable
+data class SecurityEvent(
+    val id: Int? = null,
+    val name: String? = null,
+    val time: String? = null,
+    val event: String? = null
+)
+
+@kotlinx.serialization.Serializable
+data class SecurityReply(
+    val id: Int? = null,
+    val name: String? = null,
+    val time: String? = null,
+    val event: SecurityEventStatus? = null
 )
