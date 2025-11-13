@@ -9,6 +9,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.hardware.display.DisplayManager
+import android.os.Binder
+import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -31,14 +33,21 @@ import com.auo.flex_compositor.pFilter.cMediaEncoder
 import com.auo.flex_compositor.pFilter.cViewMux
 import com.auo.flex_compositor.pFilter.cViewPiP
 import com.auo.flex_compositor.pFilter.cViewSwitch
+import com.auo.flex_compositor.pInterface.eCodecType
 import com.auo.flex_compositor.pInterface.iSurfaceSource
 import com.auo.flex_compositor.pInterface.vCropTextureArea
+import com.auo.flex_compositor.pInterface.vPos_Size
 import com.auo.flex_compositor.pNtpTimeHelper.NtpTimeHelper
+import com.auo.flex_compositor.pPIPView.IntentInfo
+import com.auo.flex_compositor.pPIPView.MainPIP
+import com.auo.flex_compositor.pPIPView.UiParentActivity
+import com.auo.flex_compositor.pPIPView.cDisplayPiPView
 import com.auo.flex_compositor.pParse.cElementType
 import com.auo.flex_compositor.pParse.cFlexDecoder
 import com.auo.flex_compositor.pParse.cFlexDisplayView
 import com.auo.flex_compositor.pParse.cFlexEncoder
 import com.auo.flex_compositor.pParse.cFlexMux
+import com.auo.flex_compositor.pParse.cFlexPIPView
 import com.auo.flex_compositor.pParse.cFlexPiP
 import com.auo.flex_compositor.pParse.cFlexSwitch
 import com.auo.flex_compositor.pParse.cFlexVirtualDisplay
@@ -64,6 +73,8 @@ class BootStartService : Service() {
     private var m_envMap: Map<String, String> = mapOf<String, String>()
     private var m_CmdReqRes: cCmdReqRes? = null
     private var m_CmdNotify: cCmdNotify? = null
+    private var m_mainPIP: MainPIP? = null
+
     private val m_tag = "BootStartService"
     private val m_dataReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -79,12 +90,13 @@ class BootStartService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        Log.d(m_tag, "BootStartService onCreate")
         val filter = IntentFilter("com.auo.flex_compositor.UPDATE_DATA")
         registerReceiver(m_dataReceiver, filter, Context.RECEIVER_EXPORTED)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d("BootStartService", "Running in foreground")
+        Log.d(m_tag, "Running in foreground")
         ServiceStartForeground()
 //        val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
 //        am.setTimeZone("Asia/Taipei")
@@ -201,6 +213,33 @@ class BootStartService : Service() {
                             }
                         }
                     }
+                }
+
+                element.type == eElementType.PIPVIEW-> {
+
+                    val Downcasting = element as cFlexPIPView
+                    if(Downcasting.source != null) {
+                        if (Downcasting.source!!.size > 0) {
+                            val sourceID = Downcasting.source!![0]
+                            val sourceElement = findSource(sourceID)
+                            if(sourceElement != null) {
+                                val displayView = cDisplayPiPView(
+                                    this,
+                                    Downcasting.name,
+                                    Downcasting.id,
+                                    sourceElement,
+                                    0,
+                                    vPos_Size(0,0,1,1),
+                                    Downcasting.crop_texture,
+                                    null,
+                                    null,
+                                )
+                                m_DisplayViews.add(displayView)
+                                m_mainPIP = MainPIP(this, displayView)
+                            }
+                        }
+                    }
+
                 }
             }
         }
@@ -524,6 +563,18 @@ class BootStartService : Service() {
             }
         }
         m_CmdReqRes!!.setCallbackCmd(callbackCmd)
+        if(m_mainPIP != null) {
+            /**
+             * If m_mainPIP is initialized, when a securityEvent is received,
+             * it needs to invoke the securityEvent callback inside m_mainPIP's PiPViewBinder.
+             */
+            m_CmdReqRes!!.securityEvent += { event, output ->
+                if(m_mainPIP!!.getPiPViewBinder().securityEvent != null) {
+
+                    m_mainPIP!!.getPiPViewBinder().securityEvent!!(event, output)
+                }
+            }
+        }
         m_CmdReqRes!!.start()
 
         m_CmdNotify = cCmdNotify()

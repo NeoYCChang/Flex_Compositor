@@ -27,7 +27,7 @@ class EGLRender {
 
     data class Render_Parameters(val vertices : ArrayList<Float>, val textcoods : ArrayList<Float>,
                                  var column : Int, var row : Int, var countOfTriangles: Int, var isDeWarp: Boolean,
-                                var isUpdate: Boolean)
+                                 var isUpdate: Boolean)
 
     private var index: Int = 0
 
@@ -45,6 +45,7 @@ class EGLRender {
         960,540
     )
     private var m_dewarpParameters: deWarp_Parameters? = null
+    private var m_renderPGB: EGLRenderPGB? = null
 
 
     private val m_render_parameters : Render_Parameters = Render_Parameters(
@@ -83,17 +84,28 @@ class EGLRender {
 
         mVBO = createVBO(m_positionHandle, m_texCoordHandle, m_render_parameters)
         mEBO = createEBO(m_render_parameters)
+
+        m_renderPGB = EGLRenderPGB(m_context!!)
     }
 
     fun onSurfaceChanged(width: Int, height: Int) {
         // Adjust the viewport based on the new surface size
         GLES32.glViewport(0, 0, width, height)
+        m_renderPGB?.sizeChange(width.toFloat(), height.toFloat())
     }
 
     // Implement the onDrawFrame() method
     fun onDrawFrame(textureID: Int) {
+        // Clear screen
+        GLES32.glClear(GLES32.GL_COLOR_BUFFER_BIT or GLES32.GL_DEPTH_BUFFER_BIT)
+        GLES32.glClearColor(0.0f, 0.0f, 0.0f, 1.0f)
+        if(textureID == 0){
+            // Entering the loading screen
+            m_renderPGB?.draw()
+            return
+        }
         // 1. Check if OpenGL state is properly initialized
-        if (mProgram == 0 || mVBO == 0 || mEBO == 0) {
+        if (mProgram == -1 || mVBO == -1 || mEBO == 0) {
             Log.e(m_tag, "Invalid GL state: mProgram=$mProgram, mVBO=$mVBO, mEBO=$mEBO")
             return
         }
@@ -114,13 +126,10 @@ class EGLRender {
 
         GLES32.glBindBuffer(GLES32.GL_ELEMENT_ARRAY_BUFFER, mEBO)
 
-        // 5. Clear screen
-        GLES32.glClear(GLES32.GL_COLOR_BUFFER_BIT or GLES32.GL_DEPTH_BUFFER_BIT)
-        GLES32.glClearColor(0.0f, 0.0f, 0.0f, 1.0f)
         if(textureID != 0) {
-            // 6. Bind texture
+            // 5. Bind texture
             GLES32.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureID)
-            // 7. Draw elements
+            // 6. Draw elements
             val indexCount = m_render_parameters.countOfTriangles
             if (indexCount > 0) {
                 GLES32.glDrawElements(
@@ -133,14 +142,13 @@ class EGLRender {
                 Log.e(m_tag, "Invalid index count: $indexCount")
             }
 
-            // 8. Unbind
+            // 7. Unbind
             GLES32.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, 0)
         }
         GLES32.glBindBuffer(GLES32.GL_ARRAY_BUFFER, 0)
         GLES32.glBindBuffer(GLES32.GL_ELEMENT_ARRAY_BUFFER, 0)
-        // 9. Finish
+        // 8. Finish
         GLES32.glFinish()
-
     }
 
     fun setCustomRenderCallback(callback: AUORenderCallback) {
@@ -284,7 +292,7 @@ class EGLRender {
     }
 
     private fun setDeWarpMode(renderParameters: Render_Parameters, textureSize : Texture_Size,
-                                dewarpParameters: deWarp_Parameters): Boolean{
+                              dewarpParameters: deWarp_Parameters): Boolean{
         val left = textureSize.offsetX.toFloat() / textureSize.width.toFloat()
         val top = textureSize.offsetY.toFloat() / textureSize.height.toFloat()
         val right = (textureSize.offsetX + textureSize.cropWidth).toFloat() / textureSize.width.toFloat()

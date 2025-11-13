@@ -18,11 +18,15 @@ class EGLThread(private var myRenderingTools: WeakReference<iEssentialRenderingT
     private var isExit = false
     private var isCreate: Boolean = true
     private val m_textureQueue = RollingQueue<cSurfaceTexture?>(2)
+    private var m_width: Int = 0
+    private var m_height: Int = 0
+    private var m_waitTextureCounter = 20
     private val m_tag = "EGLThread"
 
 
     var width: Int = 0
     var height: Int = 0
+
     override fun run() {
         super.run()
 
@@ -48,13 +52,23 @@ class EGLThread(private var myRenderingTools: WeakReference<iEssentialRenderingT
                 release()
                 break
             }
-
+            onChange(width, height)
             if(m_textureQueue.isEmpty()){
+                if(m_waitTextureCounter > 20) {
+                    if (eglHelper!!.makeCurrent()) {
+                        onDraw(null)
+                    }
+                }
+                else{
+                    m_waitTextureCounter++
+                }
+                Thread.sleep(17)
+                //Log.d(m_tag, "loading draw")
                 continue
             }
+            m_waitTextureCounter  = 0
             val surfaceTexture: cSurfaceTexture? = m_textureQueue.poll()
             //sleep(33,670000)
-            onChange(width, height)
             myRenderingTools.get()!!.Sync()
             if(eglHelper!!.makeCurrent()) {
                 onDraw(surfaceTexture)
@@ -79,12 +93,16 @@ class EGLThread(private var myRenderingTools: WeakReference<iEssentialRenderingT
      * @param height
      */
     private fun onChange(width: Int, height: Int) {
-        if (myRenderingTools.get()!!.getEGLRender() != null) {
-            myRenderingTools.get()!!.getEGLRender()!!.onSurfaceChanged(width, height)
+        if(m_width != width || m_height != height) {
+            m_width = width
+            m_height = height
+            if (myRenderingTools.get()!!.getEGLRender() != null) {
+                myRenderingTools.get()!!.getEGLRender()!!.onSurfaceChanged(width, height)
+            }
         }
     }
 
-//    private fun waitUpdateTexImage(){
+    //    private fun waitUpdateTexImage(){
 //        if(myRenderingTools.get()!!.getSource().getSurfaceTexture() != null) {
 //            if(!myRenderingTools.get()!!.getSource().getSurfaceTexture().isReleased) {
 //                myRenderingTools.get()!!.getSource().getSurfaceTexture().waitUpdateTexImage()

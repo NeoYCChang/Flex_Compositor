@@ -48,6 +48,44 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".pPIPView.ChildActivity"
+            android:exported="false"
+            android:label="@string/title_activity_child"
+            android:theme="@style/Theme.Flex_Compositor"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout"
+            android:supportsPictureInPicture="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="@string/child_taskAffinity"/>
+        <activity
+            android:name=".pPIPView.UiChildActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout"
+            android:exported="false"
+            android:label="@string/title_activity_child"
+            android:supportsPictureInPicture="true"
+            android:theme="@style/Theme.Flex_Compositor"
+            android:launchMode="singleTask"
+            android:taskAffinity="@string/child_taskAffinity"/>
+        <activity
+            android:name=".pPIPView.ParentActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout"
+            android:exported="false"
+            android:label="@string/title_activity_parent"
+            android:supportsPictureInPicture="true"
+            android:theme="@style/Theme.Flex_Compositor"
+            android:launchMode="singleTask"
+            android:taskAffinity="@string/parent_taskAffinity"/>
+        <activity
+            android:name=".pPIPView.UiParentActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout"
+            android:exported="true"
+            android:label="@string/title_activity_parent"
+            android:supportsPictureInPicture="true"
+            android:theme="@style/Theme.Flex_Compositor"
+            android:launchMode="singleTask"
+            android:taskAffinity="@string/parent_taskAffinity">
+        </activity>
+
         <receiver
             android:name=".BootReceiver"
             android:enabled="true"

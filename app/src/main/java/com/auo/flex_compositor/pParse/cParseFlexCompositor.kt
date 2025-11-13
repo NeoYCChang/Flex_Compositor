@@ -15,7 +15,7 @@ import java.util.ArrayList
 import kotlin.math.sin
 
 enum class eElementType{
-    VIRTUALDISPLAY, DISPLAYVIEW, STREAM, STREAMENCODER, STREAMDECODER, SWITCH, MUX, PIP, NULLTYPE
+    VIRTUALDISPLAY, DISPLAYVIEW, PIPVIEW, STREAM, STREAMENCODER, STREAMDECODER, SWITCH, MUX, PIP, NULLTYPE
 }
 
 enum class ePiPType{
@@ -65,6 +65,15 @@ data class cFlexDisplayView(
     var crop_texture: MutableList<vCropTextureArea>,
     var touchmapping: MutableList<vTouchMapping>,
     var dewarpParameters: MutableList<deWarp_Parameters?>,
+) : cElementType(id, name, type, vSize(0, 0), source, sink)
+
+data class cFlexPIPView(
+    override var id: Int,
+    override var name: String,
+    override var type: eElementType,
+    override var source: MutableList<Int>?,
+    override var sink: MutableList<Int>?,
+    var crop_texture: vCropTextureArea
 ) : cElementType(id, name, type, vSize(0, 0), source, sink)
 
 data class cFlexEncoder(
@@ -394,6 +403,11 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
                         newcElementType = parseDisplayViewElement(name, split_value, elementID)
                         Log.d(m_tag,"[Screen] Interface type is display")
                     }
+                    I_F_type.contains("PIP", ignoreCase = true)  -> {
+                        type = eElementType.PIPVIEW
+                        newcElementType = parsePIPViewElement(name, split_value, elementID)
+                        Log.d(m_tag,"[Screen] Interface type is pip view")
+                    }
                     else -> {
                         Log.d(m_tag,"[Screen] Cannot determine which interface it is")
                     }
@@ -461,6 +475,8 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
                 line_split[offset].contains("hdmi", ignoreCase = true) ||
                         line_split[offset].contains("dp", ignoreCase = true) ||
                         line_split[offset].contains("lvds", ignoreCase = true) -> {
+                    // remove all non-digit characters using regex,
+                    // then try to convert the result to an integer. If conversion fails, return null.
                     val result = line_split[offset].replace(Regex("[^0-9]"), "").toIntOrNull()
                     if(result != null){
                         newcElementType.displayid = result
@@ -471,6 +487,15 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
             offset++
         }
         Log.d(m_tag,"parseDisplayViewElement \n $newcElementType")
+        return  newcElementType
+    }
+
+    private fun parsePIPViewElement(name: String, line_split: List<String>, elementID : Int) : cElementType{
+        var type : eElementType = eElementType.PIPVIEW
+        var newcElementType: cFlexPIPView = cFlexPIPView(elementID,name,type,null,null,
+            vCropTextureArea(0,0,960,540) )
+
+        Log.d(m_tag,"parsePIPViewElement \n $newcElementType")
         return  newcElementType
     }
 
@@ -666,7 +691,8 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
                     if( j != i && maybeSink.name.equals(sink) &&
                         (maybeSink.type == eElementType.DISPLAYVIEW ||
                                 maybeSink.type == eElementType.STREAM ||
-                                maybeSink.type == eElementType.STREAMENCODER )){
+                                maybeSink.type == eElementType.STREAMENCODER ||
+                                maybeSink.type == eElementType.PIPVIEW )){
 
                         if(maybeSource.type == eElementType.STREAM){
                             val decoder: cFlexStreamElement = maybeSource as cFlexStreamElement
@@ -761,6 +787,10 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
             displayview.crop_texture.add(src_view_crop)
             displayview.touchmapping.add(vTouchMapping(src_view_crop.offsetX,src_view_crop.offsetY,src_view_crop.width,src_view_crop.height))
             displayview.dewarpParameters.add(sinkOption.dewarpParameters)
+        }
+        else if(maybeSink.type == eElementType.PIPVIEW){
+            val pipview: cFlexPIPView = maybeSink as cFlexPIPView
+            pipview.crop_texture = src_view_crop
         }
 
         if(maybeSource.sink == null)
@@ -964,7 +994,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
         val indexOfComma = str.indexOf(',')
 
         val firstIndex = listOf(indexOfParen, indexOfComma)
-            .filter { it > 0 } // 過濾掉沒出現或出現在 index 0 的情況
+            .filter { it > 0 } // Filter out cases where it doesn't appear or appears at index 0
             .minOrNull()
 
         val name = if (firstIndex != null) {

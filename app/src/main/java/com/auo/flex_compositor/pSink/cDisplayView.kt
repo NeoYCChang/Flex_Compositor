@@ -60,11 +60,11 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
     // The surface can be passed from outside
     private var m_surface: Surface? = null
 
-    private var eglThread: EGLThread? = null
+    protected var eglThread: EGLThread? = null
 
     private var m_source: iSurfaceSource = source
     private val m_context: Context = context
-    private var m_EGLRender: EGLRender?  = null
+    protected var m_EGLRender: EGLRender?  = null
     private var m_dewarpParameters: deWarp_Parameters? = dewarpParameters
     private val m_displayID = displayID
     private val mTextureSize : Texture_Size = Texture_Size(
@@ -83,10 +83,14 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
     // Detect Long Press
     private val m_longPressHandler = Handler(Looper.getMainLooper())
     private var m_isLongPress = false
-    private var m_isDestroyed = false
+    protected var m_isDestroyed = false
 
     init {
         holder.addCallback(this)
+        displayViewInit()
+    }
+
+    protected open fun displayViewInit(){
         val display_manager = m_context.getSystemService(DISPLAY_SERVICE) as DisplayManager
 
         val display: Display? = display_manager.getDisplay(m_displayID)
@@ -215,6 +219,7 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
 
     fun auosurfaceCreated(holder: SurfaceHolder?) {
         Log.d(m_tag,"surfaceCreated")
+        m_isDestroyed = false
         if (m_surface == null) {
             m_surface = holder?.surface
         }
@@ -271,11 +276,11 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        eglThread = null
-        m_surface = null
+        Log.d(m_tag, "surfaceDestroyed: ${holder.surface}")
+        destroyed()
     }
 
-    fun destroyed(){
+    open fun destroyed(){
         Log.d(m_tag, "destroyed")
         Thread {
             if (!m_isDestroyed) {
@@ -286,8 +291,8 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
                 Handler(Looper.getMainLooper()).post {
                     m_window_manager?.removeViewImmediate(m_mainView)
                 }
-                //m_window_manager?.removeView(this)
-                m_isDestroyed = !m_isDestroyed
+//                m_window_manager?.removeView(this)
+                m_isDestroyed = true
             }
         }.start()
     }

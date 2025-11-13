@@ -14,6 +14,9 @@ class cCmdReqRes: Thread() {
     private var m_callbackCmd: callbackCmd? = null
     private var m_serverSocket: ServerSocket? = null
 
+    //Callback function for handling the Security Event.
+    val securityEvent = mutableListOf<(List<SecurityEvent>, OutputStream) -> Unit>()
+
     override fun run() {
         super.run()
         m_serverSocket = ServerSocket(52000)
@@ -47,6 +50,10 @@ class cCmdReqRes: Thread() {
                                             val response: jsonResponse =
                                                 m_callbackCmd!!.onReceiveJson(request)
                                             CmdProtocol.reply(output, response)
+                                        }
+                                        if(request.securityEvents != null){
+                                            //If a Security Event is included, trigger the callback function.
+                                            triggerSecurityEvent(request.securityEvents, output)
                                         }
                                     }
                                 }
@@ -133,6 +140,7 @@ class cCmdReqRes: Thread() {
 
         return null
     }
+
 
     private fun readCmd(input: InputStream, output: OutputStream) : JsonRoot?{
         val startBuffer = ByteArray(8)
@@ -274,5 +282,11 @@ class cCmdReqRes: Thread() {
         fun onReceiveJson(request: jsonRequest): jsonResponse
     }
 
+    private fun triggerSecurityEvent(jsonEvents: List<SecurityEvent>, output: OutputStream){
+        Log.d(m_tag, "triggerSecurityEvent")
+        for(event in securityEvent){
+            event(jsonEvents, output)
+        }
+    }
 
 }
