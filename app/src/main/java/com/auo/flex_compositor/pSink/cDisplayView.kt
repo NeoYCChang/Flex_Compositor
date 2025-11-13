@@ -24,6 +24,9 @@ import android.view.WindowManager
 import java.lang.ref.WeakReference
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import android.opengl.EGLContext
+import android.os.RemoteException
+import android.os.SystemClock
+import androidx.compose.ui.geometry.Offset
 import kotlin.concurrent.read
 import kotlin.concurrent.write
 import com.auo.flex_compositor.pEGLFunction.EGLHelper
@@ -43,11 +46,16 @@ import com.auo.flex_compositor.pInterface.vCropTextureArea
 import com.auo.flex_compositor.pInterface.vPos_Size
 import com.auo.flex_compositor.pInterface.vTouchMapping
 import com.auo.flex_compositor.pSource.cVirtualDisplay
-
+import com.android.auoservice.auoCallback
+import com.android.auoservice.auoManager
+import com.android.auoservice.auoTouchDeviceInfo
+import com.android.auoservice.auoTouchEvent
+import com.auo.flex_compositor.pParse.cFlexTouchDevice
 
 
 open class cDisplayView(context: Context, override val e_name: String, override val e_id: Int, source: iSurfaceSource, displayID: Int,
-                   posSize: vPos_Size, cropTextureArea: vCropTextureArea, touchMapping: vTouchMapping?, dewarpParameters: deWarp_Parameters?
+                   posSize: vPos_Size, cropTextureArea: vCropTextureArea, touchMapping: vTouchMapping?,
+                        dewarpParameters: deWarp_Parameters?, touchDevice: cFlexTouchDevice?
 ) :
 SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools {
 
@@ -66,6 +74,7 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
     private val m_context: Context = context
     protected var m_EGLRender: EGLRender?  = null
     private var m_dewarpParameters: deWarp_Parameters? = dewarpParameters
+    private var m_touchDevice: cFlexTouchDevice? = touchDevice
     private val m_displayID = displayID
     private val mTextureSize : Texture_Size = Texture_Size(
         960, 540, 0, 0,
@@ -84,6 +93,9 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
     private val m_longPressHandler = Handler(Looper.getMainLooper())
     private var m_isLongPress = false
     protected var m_isDestroyed = false
+
+    private var m_auoManager: auoManager? = null
+    private var m_auoCallback: auoCallback? = null
 
     init {
         holder.addCallback(this)
@@ -107,6 +119,8 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
                 val displayContext: Context = m_context.createDisplayContext(display)
                 m_window_manager = displayContext.getSystemService(WINDOW_SERVICE) as WindowManager
                 m_window_manager!!.addView(viewInit(), m_layoutParmas)
+
+
             }
         }
     }
@@ -114,6 +128,46 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
     protected open fun viewInit(): View{
         m_mainView = this
         return this
+    }
+
+    private fun touchDeviceInit() {
+        if(m_touchDevice != null){
+            m_auoManager = m_context.getSystemService(auoManager.SERVICE) as auoManager
+
+            m_auoCallback = object : auoCallback.Stub() {
+                @Throws(RemoteException::class)
+                override fun onTouchEventReceived(touchEvent: Array<auoTouchEvent?>) {
+//                        var handled = false
+//                        for (event in touchEvent) {
+//                            if (handled) break
+//
+//                            event?.let {
+//                                Log.d(
+//                                    "auoManager",
+//                                    "Slot=${it.slot} action=${it.action} x=${it.x} y=${it.y}"
+//                                )
+//                            }
+//                        }
+                    if(m_touchDevice != null) {
+                        val motionEvents: List<MotionEvent> =
+                            convertAuoTouchEventsToMotionEvents(touchEvent, m_touchDevice!!)
+                        motionEvents.forEachIndexed { index, e ->
+                            onTransitionTouchEvent(e)
+                        }
+                    }
+                }
+            }
+            if(m_auoManager != null) {
+                val touchDeviceInfo: Array<auoTouchDeviceInfo> = m_auoManager!!.touchDeviceInfo
+                for(device in touchDeviceInfo) {
+                    if(device.vendor == m_touchDevice!!.vid && device.product == m_touchDevice!!.pid){
+                        Log.d(m_tag, "${e_name}:${e_id} read touch event from ${device.event_name}")
+                        m_auoManager?.register(device.event_name, m_auoCallback)
+                        break;
+                    }
+                }
+            }
+        }
     }
 
 
@@ -295,10 +349,18 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
                 m_isDestroyed = true
             }
         }.start()
+        m_auoManager?.unregister(m_auoCallback)
     }
 
     // Override this method to handle touch events
     override fun onTouchEvent(motionEvent: MotionEvent): Boolean {
+        if(m_touchDevice == null) {
+            return onTransitionTouchEvent(motionEvent)
+        }
+        return true
+    }
+
+    fun onTransitionTouchEvent(motionEvent: MotionEvent): Boolean {
         detectLongPress(motionEvent)
         if(m_source !== null && m_touchMapping != null) {
             val touchmapper: iTouchMapper = m_source as iTouchMapper
@@ -352,6 +414,146 @@ SurfaceView(context), SurfaceHolder.Callback, iElement, iEssentialRenderingTools
             }
         }
     }
+
+    private fun addMTproperty(event: auoTouchEvent, propertiesList: MutableList<PointerProperties>,
+                              coordsList: MutableList<PointerCoords>, touchAffine: cFlexTouchDevice){
+        val prop = MotionEvent.PointerProperties().apply {
+            id = event.slot
+        }
+        val coord = MotionEvent.PointerCoords().apply {
+            val tmpX = event.x.toFloat()
+            val tmpY = event.y.toFloat()
+            x = tmpX * touchAffine.a11 + tmpY * touchAffine.a12 + touchAffine.a13
+            y = tmpX * touchAffine.a21 + tmpY * touchAffine.a22 + touchAffine.a23
+            pressure = 1f
+            size = 1f
+        }
+
+        propertiesList.add(prop)
+        coordsList.add(coord)
+    }
+
+    private fun removeMTproperty(event: auoTouchEvent, propertiesList: MutableList<PointerProperties>, coordsList: MutableList<PointerCoords>){
+        val index = propertiesList.indexOfFirst { it.id == event.slot }
+
+        if (index != -1) {
+            propertiesList.removeAt(index)
+            coordsList.removeAt(index)
+        }
+    }
+
+    private fun getMTpropertyIndex(event: auoTouchEvent, propertiesList: MutableList<PointerProperties>): Int{
+        return propertiesList.indexOfFirst { it.id == event.slot }
+    }
+
+    private fun convertAuoTouchEventsToMotionEvents(events: Array<auoTouchEvent?>, touchAffine: cFlexTouchDevice): List<MotionEvent> {
+        val motionEvents = mutableListOf<MotionEvent>()
+
+        val validEvents = events.filterNotNull()
+        if (validEvents.isEmpty()) return motionEvents
+
+        val downTime = SystemClock.uptimeMillis()
+        val eventTime = SystemClock.uptimeMillis()
+        val pointerCount = validEvents.size
+        var hasMoveEvent = false
+
+        val propertiesList = mutableListOf<MotionEvent.PointerProperties>()
+        val coordsList = mutableListOf<MotionEvent.PointerCoords>()
+
+        for (event in validEvents) {
+            when (event.action) {
+                0 -> { // non
+                    addMTproperty(event, propertiesList, coordsList, touchAffine)
+                }
+
+                1 -> { // up
+                    addMTproperty(event, propertiesList, coordsList, touchAffine)
+                }
+
+                3 -> { // move
+                    addMTproperty(event, propertiesList, coordsList, touchAffine)
+                    hasMoveEvent = true
+                }
+            }
+        }
+        if(hasMoveEvent) {
+            val me = MotionEvent.obtain(
+                downTime,
+                eventTime,
+                MotionEvent.ACTION_MOVE,
+                propertiesList.count(),
+                propertiesList.toTypedArray(),
+                coordsList.toTypedArray(),
+                0, 0, 1f, 1f, 0, 0, 0, 0
+            )
+            motionEvents.add(me)
+        }
+
+//        val properties = Array(pointerCount) { i ->
+//            MotionEvent.PointerProperties().apply { id = validEvents[i].slot }
+//        }
+//
+//        val coords = Array(pointerCount) { i ->
+//            MotionEvent.PointerCoords().apply {
+//                val tmp_x = validEvents[i].x.toFloat()
+//                val tmp_y = validEvents[i].y.toFloat()
+//                x = tmp_x * 0.001391f + tmp_y * 0.151693f - 301.400076f
+//                y = tmp_x * -0.136053f + tmp_y * 0.000133f + 1623.312278f
+//                pressure = 1f
+//                size = 1f
+//            }
+//        }
+
+        for (event in validEvents) {
+            when (event.action) {
+                2 -> { // down
+                    val action = if (propertiesList.count() == 0) {
+                        MotionEvent.ACTION_DOWN
+                    } else {
+                        MotionEvent.ACTION_POINTER_DOWN or (propertiesList.count() shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
+                    }
+                    addMTproperty(event, propertiesList, coordsList, touchAffine)
+                    val me = MotionEvent.obtain(
+                        downTime,
+                        eventTime,
+                        action,
+                        propertiesList.count(),
+                        propertiesList.toTypedArray(),
+                        coordsList.toTypedArray(),
+                        0, 0, 1f, 1f, 0, 0, 0, 0
+                    )
+                    motionEvents.add(me)
+                }
+
+                1 -> { // up
+                    val index = getMTpropertyIndex(event, propertiesList)
+                    if(index == -1){
+                        continue
+                    }
+                    val action = if (propertiesList.count() == 1) {
+                        MotionEvent.ACTION_UP
+                    } else {
+                        MotionEvent.ACTION_POINTER_UP or (index shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
+                    }
+                    val me = MotionEvent.obtain(
+                        downTime,
+                        eventTime,
+                        action,
+                        propertiesList.count(),
+                        propertiesList.toTypedArray(),
+                        coordsList.toTypedArray(),
+                        0, 0, 1f, 1f, 0, 0, 0, 0
+                    )
+                    motionEvents.add(me)
+                    removeMTproperty(event, propertiesList, coordsList)
+                }
+            }
+
+        }
+
+        return motionEvents
+    }
+
 
 
     override fun getSurface(): Surface? {

@@ -18,7 +18,6 @@ import androidx.lifecycle.ViewModelStoreOwner
 import com.auo.flex_compositor.pCMDJson.CmdProtocol
 import com.auo.flex_compositor.pCMDJson.SecurityEvent
 import com.auo.flex_compositor.pCMDJson.cCmdReqRes
-import com.auo.flex_compositor.pCMDJson.cTestSocketClient
 import com.auo.flex_compositor.pSink.cDisplayView
 import java.io.OutputStream
 

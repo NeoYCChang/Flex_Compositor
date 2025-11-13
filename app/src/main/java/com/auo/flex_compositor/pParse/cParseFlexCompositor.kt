@@ -8,9 +8,9 @@ import com.auo.flex_compositor.pInterface.eCodecType
 import java.io.File
 import com.auo.flex_compositor.pInterface.vSize
 import com.auo.flex_compositor.pInterface.vPos_Size
-import com.auo.flex_compositor.pInterface.vTouchMapping
 import com.auo.flex_compositor.pInterface.vCropTextureArea
 import com.auo.flex_compositor.pSQLDataBase.cContentManager
+import com.auo.flex_compositor.pInterface.vTouchMapping
 import java.util.ArrayList
 import kotlin.math.sin
 
@@ -65,6 +65,7 @@ data class cFlexDisplayView(
     var crop_texture: MutableList<vCropTextureArea>,
     var touchmapping: MutableList<vTouchMapping>,
     var dewarpParameters: MutableList<deWarp_Parameters?>,
+    var touchDevices: MutableList<cFlexTouchDevice?>
 ) : cElementType(id, name, type, vSize(0, 0), source, sink)
 
 data class cFlexPIPView(
@@ -109,7 +110,8 @@ data class cSinkOption(
     var dewarpParameters: deWarp_Parameters?,
     var switch: cFlexSwitch?,
     var mux: cFlexMux?,
-    var pip: cFlexPiP?
+    var pip: cFlexPiP?,
+    var touchDevice: cFlexTouchDevice?
 )
 
 data class switchSrcParm(
@@ -117,7 +119,8 @@ data class switchSrcParm(
     var channel: Int,
     var crop_texture: vCropTextureArea,
     var touchmapping: vTouchMapping,
-    var dewarpParameters: deWarp_Parameters?)
+    var dewarpParameters: deWarp_Parameters?,
+    var touchDevice: cFlexTouchDevice?)
 
 data class cFlexSwitch(
     var id: Int,
@@ -154,6 +157,25 @@ data class cFlexPiP(
     override var channel: Int
 ) : cFlexMux(id, name, type, size, source, sink,
     muxParms, channel)
+
+// affine transform matrix
+//      ⎡ a11  a12  a13 ⎤
+// x' = ⎢               ⎢ * x
+//      ⎣ a21  a22  a23 ⎦
+
+// x :　Points actually sampled from the touch panel
+// x':　Touch points that are remapped to the screen.
+
+data class cFlexTouchDevice(
+    var vid: Int,
+    var pid: Int,
+    var a11: Float,
+    var a12: Float,
+    var a13: Float,
+    var a21: Float,
+    var a22: Float,
+    var a23: Float
+)
 
 enum class SpecialID(val id: Int) {
     DUMMY(-10)
@@ -468,7 +490,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
         var offset: Int = 0
         var newcElementType: cFlexDisplayView = cFlexDisplayView(elementID,name,type,null,null,
             0, mutableListOf<vPos_Size>(), mutableListOf<vCropTextureArea>(),
-            mutableListOf<vTouchMapping>(), mutableListOf<deWarp_Parameters?>()
+            mutableListOf<vTouchMapping>(), mutableListOf<deWarp_Parameters?>(), mutableListOf<cFlexTouchDevice?>()
         )
         while (offset < line_split.size){
             when {
@@ -630,7 +652,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
             val source_view = source_with_view.substringAfter("(").substringBefore(")")
             val sink = getElementNameOnMapping(sink_with_view)
             val sink_view = sink_with_view.substringAfter("(").substringBefore(")")
-            val sinkOption: cSinkOption = cSinkOption(null, null, null, null)
+            val sinkOption: cSinkOption = cSinkOption(null, null, null, null, null)
             parseSinkOption(sink_with_view, sinkOption)
             //dummy is for mux
             if(source.equals("dummy") && sink.equals("dummy")){
@@ -787,6 +809,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
             displayview.crop_texture.add(src_view_crop)
             displayview.touchmapping.add(vTouchMapping(src_view_crop.offsetX,src_view_crop.offsetY,src_view_crop.width,src_view_crop.height))
             displayview.dewarpParameters.add(sinkOption.dewarpParameters)
+            displayview.touchDevices.add(sinkOption.touchDevice)
         }
         else if(maybeSink.type == eElementType.PIPVIEW){
             val pipview: cFlexPIPView = maybeSink as cFlexPIPView
@@ -814,7 +837,8 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
             return
         }
 
-        setSwitchParm(sinkOption.switch!!, sinkOption.switch!!.srcParms[0], maybeSource.id, maybeSink.id, src_view_crop, sink_view_posSize, sinkOption.dewarpParameters)
+        setSwitchParm(sinkOption.switch!!, sinkOption.switch!!.srcParms[0], maybeSource.id, maybeSink.id, src_view_crop, sink_view_posSize,
+            sinkOption.dewarpParameters, sinkOption.touchDevice)
 
         if(maybeSink.type == eElementType.STREAM){
             // src(x,y,w,h)->sink(x,y,w,h),switch(0,1)
@@ -895,7 +919,8 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
         }
 
         setSwitchParm(switch, srcParm,
-            maybeSource.id, maybeSink.id, src_view_crop, sink_view_posSize, sinkOption.dewarpParameters)
+            maybeSource.id, maybeSink.id, src_view_crop, sink_view_posSize, sinkOption.dewarpParameters,
+            sinkOption.touchDevice)
 
         if(maybeSink.type == eElementType.STREAM){
             val encoder:  cFlexStreamElement = maybeSink as cFlexStreamElement
@@ -940,7 +965,8 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
             srcParm = p
         }
         setSwitchParm(switch, srcParm,
-            SpecialID.DUMMY.id, maybeSink.id, vCropTextureArea(0,0,1,1), sink_view_posSize, sinkOption.dewarpParameters)
+            SpecialID.DUMMY.id, maybeSink.id, vCropTextureArea(0,0,1,1), sink_view_posSize,
+            sinkOption.dewarpParameters, sinkOption.touchDevice)
 
         if(maybeSink.type == eElementType.STREAM){
             val encoder:  cFlexStreamElement = maybeSink as cFlexStreamElement
@@ -986,7 +1012,8 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
         }
 
         setSwitchParm(switch, srcParm,
-            maybeSource.id, SpecialID.DUMMY.id, src_view_crop, vPos_Size(0,0,1,1),sinkOption.dewarpParameters)
+            maybeSource.id, SpecialID.DUMMY.id, src_view_crop, vPos_Size(0,0,1,1),
+            sinkOption.dewarpParameters, sinkOption.touchDevice)
     }
 
     private fun getElementNameOnMapping(str: String):String{
@@ -1007,12 +1034,13 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
     }
 
     private fun setSwitchParm(switch: cFlexSwitch, srcParm: switchSrcParm, sourceID: Int, sinkID: Int, src_view_crop: vCropTextureArea,
-                              sink_view_posSize: vPos_Size, dewarpParameters: deWarp_Parameters?){
+                              sink_view_posSize: vPos_Size, dewarpParameters: deWarp_Parameters?, touchDevice: cFlexTouchDevice?){
         srcParm.source = sourceID
         srcParm.crop_texture = src_view_crop
         srcParm.touchmapping = vTouchMapping(src_view_crop.offsetX,src_view_crop.offsetY,src_view_crop.width,src_view_crop.height)
         srcParm.dewarpParameters = dewarpParameters
-        switch.sink= sinkID
+        srcParm.touchDevice = touchDevice
+        switch.sink = sinkID
         switch.posSize = sink_view_posSize
     }
 
@@ -1040,7 +1068,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
         if(switch_size == 0){
             srcParm = switchSrcParm(-1, addChannel,
                 vCropTextureArea(0,0,1,1),
-                vTouchMapping(0,0,1,1),null
+                vTouchMapping(0,0,1,1),null, null
             )
             switch = cFlexSwitch(-1, "switch_$switch_size", eElementType.SWITCH,
                 mutableListOf<switchSrcParm>(srcParm), -1 , vPos_Size(0,0,1,1)
@@ -1052,7 +1080,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
             // Share the object with the first-created switch
             srcParm = switchSrcParm(-1, addChannel,
                 vCropTextureArea(0,0,1,1),
-                vTouchMapping(0,0,1,1),null
+                vTouchMapping(0,0,1,1),null, null
             )
             mux.muxParms[0].switch.srcParms.add(srcParm)
             switch = cFlexSwitch(-1, "switch_$switch_size", eElementType.SWITCH,
@@ -1108,6 +1136,9 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
                     split_value[i].contains("pip", ignoreCase = true) -> {
                         parseSinkOption_pip(split_value[i], sinkOption)
                     }
+                    split_value[i].contains("touch", ignoreCase = true) -> {
+                        parseSinkOption_touch(split_value[i], sinkOption)
+                    }
                 }
             }
         }
@@ -1151,7 +1182,7 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
             if (id != null && channel != null) {
                 val srcParm: switchSrcParm = switchSrcParm(-1, channel,
                     vCropTextureArea(0,0,1,1),
-                    vTouchMapping(0,0,1,1),null
+                    vTouchMapping(0,0,1,1),null, null
                 )
                 sinkOption.switch = cFlexSwitch(id, "switch_$id", eElementType.SWITCH,
                     mutableListOf<switchSrcParm>(srcParm), -1, vPos_Size(0,0,1,1)
@@ -1193,6 +1224,29 @@ class cParseFlexCompositor(context: Context, flexCompositorINI: String) {
                         id, "mux_$id", eElementType.PIP,
                         vSize(0, 0), null, null, mutableListOf<muxParm>(),
                         channel)
+                }
+            }
+        }
+    }
+
+    private fun parseSinkOption_touch(option: String, sinkOption: cSinkOption){
+        val result = option.substringAfter("(").substringBefore(")")
+        val result_split = result.split(',')
+        //size:6 -> vid,pid,x,y,width,height
+        if(result_split.size == 8){
+            val vid = result_split[0].trim().toIntOrNull(16)
+            val pid = result_split[1].trim().toIntOrNull(16)
+
+            if (vid != null && pid != null) {
+                val a11 = result_split[2].trim().toFloatOrNull() ?: 0.0f
+                val a12 = result_split[3].trim().toFloatOrNull() ?: 0.0f
+                val a13 = result_split[4].trim().toFloatOrNull() ?: 0.0f
+                val a21 = result_split[5].trim().toFloatOrNull() ?: 0.0f
+                val a22 = result_split[6].trim().toFloatOrNull() ?: 0.0f
+                val a23 = result_split[7].trim().toFloatOrNull() ?: 0.0f
+                if(sinkOption.touchDevice == null) {
+                    sinkOption.touchDevice = cFlexTouchDevice(
+                        vid, pid, a11, a12, a13, a21, a22, a23)
                 }
             }
         }

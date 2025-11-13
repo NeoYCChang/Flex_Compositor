@@ -127,22 +127,17 @@ class CmdProtocol{
          */
         fun replySecurityReply(jsonEvents: List<SecurityEvent>, output: OutputStream, isHandled: Boolean){
             Thread {
-                val securityReplies: MutableList<SecurityReply> = mutableListOf<SecurityReply>()
+                val securityReplies: MutableList<jsonStatus> = mutableListOf<jsonStatus>()
                 for(event in jsonEvents){
-                    val securityReply: SecurityReply
-                    val now = LocalDateTime.now()
-                    val formatter = DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss")
-                    val nowTime = now.format(formatter)
+                    val securityReply: jsonStatus
                     if(isHandled) {
-                        securityReply = SecurityReply(
-                            event.id, event.name,
-                            nowTime, SecurityEventStatus.Handled
+                        securityReply = jsonStatus(
+                            "ok"
                         )
                     }
                     else{
-                        securityReply = SecurityReply(
-                            event.id, event.name,
-                            nowTime, SecurityEventStatus.Unhandled
+                        securityReply = jsonStatus(
+                            "failed"
                         )
                     }
                     securityReplies.add(securityReply)
@@ -228,7 +223,7 @@ data class jsonRequest(
     val sourceSwitchers: List<SourceSwitcher>? = null,
     val sourceMuxs: List<SourceMux>? = null,
     val getEnv: List<GetEnv>? = null,
-    val securityEvents: List<SecurityEvent>? = null
+    val securityAlert: List<SecurityEvent>? = null
 ):JsonRoot
 
 @kotlinx.serialization.Serializable
@@ -237,7 +232,7 @@ data class jsonResponse(
     var sourceSwitchers: List<jsonStatus>? = null,
     var sourceMuxs: List<jsonStatus>? = null,
     var getEnv: Map<String, String>? = null,
-    val securityReplies: List<SecurityReply>? = null
+    val securityAlert: List<jsonStatus>? = null
 ):JsonRoot
 
 @kotlinx.serialization.Serializable
@@ -304,16 +299,5 @@ enum class SecurityEventStatus {
 
 @kotlinx.serialization.Serializable
 data class SecurityEvent(
-    val id: Int? = null,
-    val name: String? = null,
-    val time: String? = null,
     val event: String? = null
-)
-
-@kotlinx.serialization.Serializable
-data class SecurityReply(
-    val id: Int? = null,
-    val name: String? = null,
-    val time: String? = null,
-    val event: SecurityEventStatus? = null
 )

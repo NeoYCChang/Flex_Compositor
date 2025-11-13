@@ -32,6 +32,12 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        externalNativeBuild {
+            cmake {
+                cppFlags("")
+            }
+        }
     }
 
     buildTypes {
@@ -65,6 +71,12 @@ android {
         compose = true
         buildConfig = true
     }
+
+    externalNativeBuild {
+        cmake {
+            path("src/main/cpp/CMakeLists.txt")
+        }
+    }
 }
 
 dependencies {
@@ -81,6 +93,7 @@ dependencies {
     implementation(libs.java.websocket)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.commons.net)
+    implementation(files("src\\main\\libs\\auoservice.jar"))
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

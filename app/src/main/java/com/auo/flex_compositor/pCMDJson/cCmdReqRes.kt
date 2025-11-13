@@ -51,9 +51,9 @@ class cCmdReqRes: Thread() {
                                                 m_callbackCmd!!.onReceiveJson(request)
                                             CmdProtocol.reply(output, response)
                                         }
-                                        if(request.securityEvents != null){
+                                        if(request.securityAlert != null){
                                             //If a Security Event is included, trigger the callback function.
-                                            triggerSecurityEvent(request.securityEvents, output)
+                                            triggerSecurityEvent(request.securityAlert, output)
                                         }
                                     }
                                 }

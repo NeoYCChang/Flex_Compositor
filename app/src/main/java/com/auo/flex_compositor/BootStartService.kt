@@ -24,7 +24,6 @@ import com.auo.flex_compositor.pCMDJson.SourceSwitcher
 import com.auo.flex_compositor.pCMDJson.SwitcherStatus
 import com.auo.flex_compositor.pCMDJson.cCmdNotify
 import com.auo.flex_compositor.pCMDJson.cCmdReqRes
-import com.auo.flex_compositor.pCMDJson.cTestSocketClient
 import com.auo.flex_compositor.pCMDJson.jsonRequest
 import com.auo.flex_compositor.pCMDJson.jsonResponse
 import com.auo.flex_compositor.pCMDJson.jsonStatus
@@ -184,6 +183,7 @@ class BootStartService : Service() {
                                     Downcasting.crop_texture[i],
                                     Downcasting.touchmapping[i],
                                     Downcasting.dewarpParameters[i],
+                                    Downcasting.touchDevices[i]
                                 )
                                 m_DisplayViews.add(displayView)
                             }
@@ -266,7 +266,8 @@ class BootStartService : Service() {
                                 val sourceID = switch.srcParms[j].source
                                 val sourceElement = findSource(sourceID)
                                 val switchParm = cViewSwitch.viewSwitchParm(sourceElement, switch.srcParms[j].channel,
-                                    switch.srcParms[j].crop_texture,switch.srcParms[j].touchmapping,switch.srcParms[j].dewarpParameters)
+                                    switch.srcParms[j].crop_texture,switch.srcParms[j].touchmapping,switch.srcParms[j].dewarpParameters,
+                                    switch.srcParms[j].touchDevice)
                                 switchesParm.add(switchParm)
                             }
                             if(switchesParm.size > 0){
@@ -285,7 +286,8 @@ class BootStartService : Service() {
                                     switch.posSize,
                                     switchesParm[0].crop_texture,
                                     switchesParm[0].touchMapping,
-                                    switchesParm[0].dewarpParameters
+                                    switchesParm[0].dewarpParameters,
+                                    switchesParm[0].touchDevice
                                 )
                                 createControlButton(viewSwitch, Downcasting.displayid)
                                 out_switches.add(viewSwitch)
@@ -313,7 +315,8 @@ class BootStartService : Service() {
             val sourceID = switch.srcParms[j].source
             val sourceElement = findSource(sourceID)
             val switchParm = cViewSwitch.viewSwitchParm(sourceElement, switch.srcParms[j].channel,
-                switch.srcParms[j].crop_texture,switch.srcParms[j].touchmapping,switch.srcParms[j].dewarpParameters)
+                switch.srcParms[j].crop_texture,switch.srcParms[j].touchmapping,switch.srcParms[j].dewarpParameters,
+                switch.srcParms[j].touchDevice)
             switchesParm.add(switchParm)
         }
 
@@ -368,7 +371,8 @@ class BootStartService : Service() {
                                 val sourceID = switch.srcParms[j].source
                                 val sourceElement = findSource(sourceID)
                                 val switchParm = cViewSwitch.viewSwitchParm(sourceElement, switch.srcParms[j].channel,
-                                    switch.srcParms[j].crop_texture,switch.srcParms[j].touchmapping,switch.srcParms[j].dewarpParameters)
+                                    switch.srcParms[j].crop_texture,switch.srcParms[j].touchmapping,switch.srcParms[j].dewarpParameters,
+                                    switch.srcParms[j].touchDevice)
                                 switchesParm.add(switchParm)
                             }
                             if(switchesParm.size > 0){
@@ -397,7 +401,8 @@ class BootStartService : Service() {
                                     switch.posSize,
                                     switchesParm[0].crop_texture,
                                     switchesParm[0].touchMapping,
-                                    switchesParm[0].dewarpParameters
+                                    switchesParm[0].dewarpParameters,
+                                    switchesParm[0].touchDevice
                                 )
                                 createControlButton(viewSwitch, Downcasting.displayid)
 
@@ -447,7 +452,8 @@ class BootStartService : Service() {
                                 val sourceID = switch.srcParms[j].source
                                 val sourceElement = findSource(sourceID)
                                 val switchParm = cViewSwitch.viewSwitchParm(sourceElement, switch.srcParms[j].channel,
-                                    switch.srcParms[j].crop_texture,switch.srcParms[j].touchmapping,switch.srcParms[j].dewarpParameters)
+                                    switch.srcParms[j].crop_texture,switch.srcParms[j].touchmapping,switch.srcParms[j].dewarpParameters,
+                                    switch.srcParms[j].touchDevice)
                                 switchesParm.add(switchParm)
                             }
                             if(switchesParm.size > 0){
@@ -476,7 +482,8 @@ class BootStartService : Service() {
                                         switch.posSize,
                                         switchesParm[0].crop_texture,
                                         switchesParm[0].touchMapping,
-                                        switchesParm[0].dewarpParameters
+                                        switchesParm[0].dewarpParameters,
+                                        switchesParm[0].touchDevice
                                     )
                                     parentPiPSwitch = viewSwitch
                                     out_parentPiPView = displayView

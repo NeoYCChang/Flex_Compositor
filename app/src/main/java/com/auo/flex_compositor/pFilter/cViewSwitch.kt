@@ -9,13 +9,14 @@ import com.auo.flex_compositor.pInterface.vPos_Size
 import com.auo.flex_compositor.pInterface.vTouchMapping
 import com.auo.flex_compositor.pView.cSurfaceTexture
 import android.opengl.EGLContext
+import com.auo.flex_compositor.pParse.cFlexTouchDevice
 
 class cViewSwitch(override val e_name: String, override val e_id: Int,
                   switchesParm: MutableList<viewSwitchParm>, defaultChannel: Int = 0): iSurfaceSource  {
 
     data class viewSwitchParm(val surfaceSource: iSurfaceSource?, val channel: Int,
                               val crop_texture: vCropTextureArea, val touchMapping: vTouchMapping,
-                              val dewarpParameters: deWarp_Parameters?)
+                              val dewarpParameters: deWarp_Parameters?, val touchDevice: cFlexTouchDevice?)
 
     private val m_sourceList: MutableList<iSurfaceSource?> = mutableListOf<iSurfaceSource?>()
     private val m_channels: MutableList<Int> = mutableListOf<Int>()

@@ -34,7 +34,7 @@ import com.auo.flex_compositor.pInterface.vTouchMapping
 
 class cDisplayPiPChildView(context: Context, override val e_name: String, override val e_id: Int, source: iSurfaceSource, displayID: Int,
                            posSize: vPos_Size, cropTextureArea: vCropTextureArea, touchMapping: vTouchMapping?, dewarpParameters: deWarp_Parameters?
-) :cDisplayView(context, e_name,  e_id, source, displayID, posSize, cropTextureArea, touchMapping, dewarpParameters) {
+) :cDisplayView(context, e_name,  e_id, source, displayID, posSize, cropTextureArea, touchMapping, dewarpParameters, null) {
 
     private var m_childSwitch: cViewSwitch? = null
     private var m_pip: cViewPiP? = null

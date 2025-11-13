@@ -54,14 +54,14 @@ class EGLThread(private var myRenderingTools: WeakReference<iEssentialRenderingT
             }
             onChange(width, height)
             if(m_textureQueue.isEmpty()){
-                if(m_waitTextureCounter > 20) {
-                    if (eglHelper!!.makeCurrent()) {
-                        onDraw(null)
-                    }
-                }
-                else{
-                    m_waitTextureCounter++
-                }
+//                if(m_waitTextureCounter > 20) {
+//                    if (eglHelper!!.makeCurrent()) {
+//                        onDraw(null)
+//                    }
+//                }
+//                else{
+//                    m_waitTextureCounter++
+//                }
                 Thread.sleep(17)
                 //Log.d(m_tag, "loading draw")
                 continue
